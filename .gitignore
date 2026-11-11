@@ -1,0 +1,14 @@
+# Runtime state and local credentials
+.state/
+.venv/
+__pycache__/
+*.py[cod]
+.env
+.env.*
+*.env
+*.pem
+*.key
+*.sqlite
+*.sqlite3*
+known_hosts*
+.DS_Store

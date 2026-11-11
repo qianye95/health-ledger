@@ -1,0 +1,12 @@
+{
+  "id": "life-tracker",
+  "name": "训记训练助手",
+  "description": "查询训记训练并生成力量和原生有氧草稿。",
+  "contracts": {
+    "tools": ["life_tracker_training_read", "life_tracker_strength_preview", "life_tracker_cardio_preview"]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false
+  }
+}

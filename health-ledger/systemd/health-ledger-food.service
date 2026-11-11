@@ -1,0 +1,14 @@
+[Unit]
+Description=Read today's Xunji food records
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=xunji-agent
+Group=xunji-agent
+WorkingDirectory=/home/xunji-agent/health-ledger
+ExecStart=/usr/bin/python3 -B ledger.py sync-food-today
+UMask=0077
+TimeoutStartSec=3min
+NoNewPrivileges=true

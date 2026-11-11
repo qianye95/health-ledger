@@ -1,0 +1,18 @@
+[Unit]
+Description=Generate and deliver the private health weekly review
+Wants=network-online.target xunji-openclaw.service
+After=network-online.target xunji-openclaw.service
+
+[Service]
+EnvironmentFile=-/etc/health-ledger/dashboard.env
+Type=oneshot
+User=xunji-agent
+Group=xunji-agent
+WorkingDirectory=/home/xunji-agent/health-ledger
+Environment=PATH=/home/xunji-agent/.openclaw/bin:/home/xunji-agent/.openclaw/tools/node/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/python3 -B ledger.py sync --days 14
+ExecStart=/home/xunji-agent/health-ledger/.venv/bin/python -B backup.py
+ExecStart=/usr/bin/python3 -B ledger.py report --send
+UMask=0077
+TimeoutStartSec=20min
+NoNewPrivileges=true

@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>身体总账</title>
+  <link rel="stylesheet" href="/dashboard.css">
+  <script src="/dashboard.js" defer></script>
+</head>
+<body>
+  <header class="top">
+    <div class="wrap top-inner">
+      <a class="brand" href="/"><span class="brand-icon" aria-hidden="true">体</span>身体总账</a>
+      <nav id="pages" aria-label="看板模块">
+        <a href="#overview" aria-current="page">总览</a>
+        <a href="#intake">饮食</a>
+        <a href="#trends">身体趋势</a>
+        <a href="#review">训练与恢复</a>
+        <a href="#sources">数据同步</a>
+      </nav>
+      <button type="button" id="refresh" class="refresh">刷新看板</button>
+    </div>
+  </header>
+  <main class="wrap">
+    <div class="intro">
+      <div><h1>身体总账</h1><p id="subtitle">减脂计划与身体数据</p></div>
+      <p id="status" role="status">正在读取总账…</p>
+    </div>
+    <div id="error" class="error" role="alert" hidden></div>
+    <div id="dashboard" hidden>
+      <div data-page="overview">
+        <section class="metrics" aria-label="最新身体数据" id="metrics"></section>
+        <section class="section" aria-labelledby="fat-loss-heading">
+          <div class="section-heading"><h2 id="fat-loss-heading">减脂进度</h2></div>
+          <div id="fat-loss-progress" class="fat-loss-progress"></div>
+        </section>
+        <section class="section" aria-labelledby="calendar-heading">
+          <div class="section-heading"><div><h2 id="calendar-heading">训练日历</h2><p id="calendar-caption"></p></div></div>
+          <div id="week-summary" class="week-summary"></div>
+          <div class="week-calendar">
+            <div class="week-weekdays" aria-hidden="true">
+              <span>周一</span><span>周二</span><span>周三</span><span>周四</span><span>周五</span><span>周六</span><span>周日</span>
+            </div>
+            <ol id="week-days" class="week-days" aria-label="本月训练记录" role="list"></ol>
+          </div>
+          <p class="week-note">训练来自训记和 Zepp。类型一致、时段重合的同一场训练合并统计。</p>
+        </section>
+      </div>
+      <section data-page="intake" class="section" aria-labelledby="intake-heading" hidden>
+        <div class="section-heading"><div><h2 id="intake-heading">今日摄入</h2><p id="intake-caption"></p></div></div>
+        <div id="intake-grid" class="plan-grid"></div>
+        <div class="meal-section">
+          <h2>今日饮食明细</h2>
+          <div id="meal-grid" class="meal-grid"></div>
+        </div>
+      </section>
+      <section data-page="trends" class="section" aria-labelledby="trend-heading" hidden>
+        <div class="section-heading">
+          <div><h2 id="trend-heading">身体趋势</h2><p id="range-caption"></p></div>
+          <div class="periods" role="group" aria-label="趋势时间范围">
+            <button type="button" data-range="7" aria-pressed="false">近 7 天</button>
+            <button type="button" data-range="30" aria-pressed="false">近 30 天</button>
+            <button type="button" data-range="60" aria-pressed="false">近 60 天</button>
+            <button type="button" data-range="all" aria-pressed="true">自 10 月 1 日</button>
+          </div>
+        </div>
+        <div class="charts">
+          <article class="panel chart-card primary" data-chart="weight">
+            <div class="chart-heading"><div><h3>体重走势</h3><p>kg · 每日实测均值</p></div><strong data-summary></strong></div>
+            <div class="chart-frame"><canvas tabindex="0" aria-label="体重走势，可用方向键查看日期"></canvas><div class="tip" hidden></div></div>
+            <div class="legend"><span><i class="swatch green"></i>实测</span><span><i class="swatch dotted"></i>7 日均值</span></div>
+          </article>
+          <article class="panel chart-card" data-chart="sleep">
+            <div class="chart-heading"><div><h3>夜间睡眠</h3><p>小时 · 按醒来日期</p></div><strong data-summary></strong></div>
+            <div class="chart-frame"><canvas tabindex="0" aria-label="夜间睡眠，可用方向键查看日期"></canvas><div class="tip" hidden></div></div>
+            <div class="legend"><span><i class="swatch blue"></i>浅睡、深睡和 REM 合计</span></div>
+          </article>
+          <article class="panel chart-card" data-chart="waist">
+            <div class="chart-heading"><div><h3>腰围实测</h3><p>cm · 每个点代表一次测量日</p></div><strong data-summary></strong></div>
+            <div class="chart-frame small"><canvas tabindex="0" aria-label="腰围实测，可用方向键查看日期"></canvas><div class="tip" hidden></div></div>
+          </article>
+          <article class="panel chart-card" data-chart="resting">
+            <div class="chart-heading"><div><h3>静息心率</h3><p>次/分 · Zepp</p></div><strong data-summary></strong></div>
+            <div class="chart-frame small"><canvas tabindex="0" aria-label="静息心率，可用方向键查看日期"></canvas><div class="tip" hidden></div></div>
+          </article>
+          <article class="panel chart-card" data-chart="steps">
+            <div class="chart-heading"><div><h3>日常步数</h3><p>步 · 浅色柱为今日部分数据</p></div><strong data-summary></strong></div>
+            <div class="chart-frame small"><canvas tabindex="0" aria-label="日常步数，可用方向键查看日期"></canvas><div class="tip" hidden></div></div>
+          </article>
+        </div>
+      </section>
+      <section data-page="review" class="section" aria-labelledby="review-heading" hidden>
+        <div class="section-heading"><div><h2 id="review-heading">训练与恢复</h2><p id="review-caption"></p></div></div>
+        <div class="review-grid">
+          <article class="panel"><h3>训练与心率</h3><div id="sessions"></div><div id="comparison"></div></article>
+          <article class="panel"><h3>评估与建议</h3><div id="recovery"></div><div id="guidance"></div></article>
+        </div>
+      </section>
+      <section data-page="sources" class="section" aria-labelledby="source-heading" hidden>
+        <div class="section-heading"><div><h2 id="source-heading">数据同步</h2><p>云端每天 10:00 同步。今日饮食在 06:15 至 23:45 每半小时补拉一次。时间均为北京时间。</p></div></div>
+        <div id="source-grid" class="source-grid"></div>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

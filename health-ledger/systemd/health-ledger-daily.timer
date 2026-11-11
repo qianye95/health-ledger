@@ -1,0 +1,9 @@
+[Unit]
+Description=Daily health summary at 11:00 China time
+
+[Timer]
+OnCalendar=*-*-* 11:00:00 Asia/Shanghai
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

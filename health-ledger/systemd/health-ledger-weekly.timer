@@ -1,0 +1,9 @@
+[Unit]
+Description=Weekly health review on Saturday at 11:00 China time
+
+[Timer]
+OnCalendar=Sat *-*-* 11:00:00 Asia/Shanghai
+Persistent=true
+
+[Install]
+WantedBy=timers.target

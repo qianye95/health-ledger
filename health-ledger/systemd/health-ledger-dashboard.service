@@ -1,0 +1,20 @@
+[Unit]
+Description=Private health ledger dashboard
+
+[Service]
+Type=simple
+User=xunji-agent
+Group=xunji-agent
+WorkingDirectory=/home/xunji-agent/health-ledger
+ExecStart=/usr/bin/python3 -B dashboard.py
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+InaccessiblePaths=-/home/xunji-agent/.codex -/home/xunji-agent/.openclaw
+
+[Install]
+WantedBy=multi-user.target
