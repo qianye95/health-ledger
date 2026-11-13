@@ -363,6 +363,7 @@ def main():
     delivery = daily.add_mutually_exclusive_group()
     delivery.add_argument("--send", action="store_true")
     delivery.add_argument("--dry-run", action="store_true", help="核对微信投递参数，不发送")
+    delivery.add_argument("--resend", action="store_true", help="重新推送今天的日报")
     args = parser.parse_args()
     os.umask(0o077)
     STATE.mkdir(parents=True, exist_ok=True)
@@ -417,7 +418,7 @@ def main():
                 backfill_zepp(db, args.since, end)
             elif args.command == "daily-report":
                 from daily import generate
-                generate(db, datetime.now(TZ).date(), send=args.send, dry_run=args.dry_run)
+                generate(db, datetime.now(TZ).date(), send=args.send, dry_run=args.dry_run, resend=args.resend)
             else:
                 from weekly import generate
                 today = datetime.now(TZ).date()

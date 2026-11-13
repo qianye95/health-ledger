@@ -137,14 +137,14 @@ def aggregate(data, days, points):
             "cardio_sessions": sum(is_cardio(r) for d in days for r in data["xunji-training"].get(d, []))}
 
 
-def waist_history(db, end):
+def waist_history(db, end, *, min_gap=0):
     result = []
     for day, raw in db.execute("""
         SELECT day,payload FROM observations WHERE user_id=? AND source='xunji-body' AND day<=? ORDER BY day DESC
     """, (USER, end)):
         values = [number(row.get("value")) for row in json.loads(raw) if row.get("type") == "weist"]
         values = [v for v in values if v is not None and v > 0]
-        if values:
+        if values and (not result or (date.fromisoformat(result[0]["day"]) - date.fromisoformat(day)).days >= min_gap):
             result.append({"day": day, "cm": values[0]})
         if len(result) == 2:
             break
@@ -192,9 +192,9 @@ def lift_changes(current, previous):
                   key=lambda row: (row[0], -row[1]))
 
 
-def report_text(end, start, current, previous, weeks, waist, profile, latest):
+def report_text(end, start, current, previous, weeks, waist, profile, latest, energy):
     titles = {"xunji-training": "训记训练", "xunji-body": "训记体重／腰围",
-              "xunji-food": "训记饮食", "zepp": "Zepp"}
+              "xunji-food": "训记饮食", "zepp": "Zepp 日汇总", "zepp-workout": "Zepp 单次运动"}
     lines = [f"# 身体数据周报 {start} 至 {end}", "", f"计划阶段：{profile.get('phase', '待录入')}", "",
              "| 指标 | 本周 | 上周 |", "|---|---:|---:|"]
     for label, key, fmt in (("实测平均体重（kg）", "weights", ".2f"), ("平均睡眠（分钟）", "sleep_minutes", ".0f"),
@@ -229,6 +229,7 @@ def report_text(end, start, current, previous, weeks, waist, profile, latest):
             lines.append(f"两次实测相比 {recent_waist['cm'] - older['cm']:+.1f} cm，上一次为 {older['day']}。")
     else:
         lines.append("腰围暂无实测。")
+    lines.extend(energy)
     if profile:
         lines += ["", "## 计划对照", ""]
         if profile.get("birth_date") and profile.get("height_cm"):
@@ -240,7 +241,7 @@ def report_text(end, start, current, previous, weeks, waist, profile, latest):
         if "strength_sessions_per_week" in profile:
             lines.append(f"力量计划每周 {profile['strength_sessions_per_week']} 场，本周确认记录 {len(current['sessions'])} 场。")
         if "cardio_sessions_per_week" in profile:
-            lines.append(f"有氧计划每周 {profile['cardio_sessions_per_week']} 场，本周训记记录 {current['cardio_sessions']} 场。Zepp 单次有氧活动明细待接入。")
+            lines.append(f"有氧计划每周 {profile['cardio_sessions_per_week']} 场，合并后的实际场次见热量缺口评估。")
         if "neat_minutes_per_day" in profile:
             lines.append(f"NEAT 计划每天 {profile['neat_minutes_per_day']} 分钟。目前只有步数等日常活动指标，完成时长待验证。")
     lines.extend(["", "## 力量训练与心率", ""])
@@ -320,6 +321,9 @@ def deliver(db, end, body):
 
 
 def generate(db, end, send):
+    from dashboard import merged_workouts
+    from energy_review import energy_review
+
     start = end - timedelta(days=6)
     baseline = end - timedelta(days=27)
     data = load_period(db, (baseline - timedelta(days=1)).isoformat(), (end + timedelta(days=1)).isoformat())
@@ -342,12 +346,15 @@ def generate(db, end, send):
         SELECT source,max(day) FROM observations WHERE user_id=? AND day<=? GROUP BY source
     """, (USER, end_day)))
     latest = {source: (cutoffs.get(source), runs.get(source)) for source in SOURCES}
-    report = report_text(end_day, start_day, current, previous, weeks, waist, profile, latest)
+    workouts = merged_workouts(data, dates(start - timedelta(days=7), end))
+    age = age_on(profile["birth_date"], end_day) if profile.get("birth_date") else number(profile.get("age"))
+    energy = energy_review(current, previous, weeks, waist_history(db, end_day, min_gap=7), profile, age, end, workouts)
+    report = report_text(end_day, start_day, current, previous, weeks, waist, profile, latest, energy)
     folder = STATE / "reports" / USER / end_day
     folder.mkdir(parents=True, exist_ok=True)
     meta = {"start": start_day, "end": end_day, "generated_at": now(), "current": current,
             "previous": previous, "weight_weeks": weeks, "waist": waist,
-            "profile": profile, "sync": latest}
+            "profile": profile, "sync": latest, "energy_review": energy}
     atomic(folder / "report.json", json.dumps(meta, ensure_ascii=False, indent=2).encode())
     atomic(folder / "report.md", report.encode())
     print(f"周报已保存，统计期 {start_day} 至 {end_day}")

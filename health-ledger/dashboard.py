@@ -51,9 +51,12 @@ def average(values):
     return round(mean(values), 2) if values else None
 
 
-def profile_on(day):
+def profile_versions():
     path = STATE / "profile.json"
-    versions = json.loads(path.read_text()) if path.is_file() else []
+    return json.loads(path.read_text()) if path.is_file() else []
+
+
+def profile_on(day, versions):
     plan = max((p for p in versions if p["effective_from"] <= day),
                key=lambda p: p["effective_from"], default={})
     fields = ("phase", "height_cm", "target_weight_kg", "estimated_body_fat_pct",
@@ -99,18 +102,11 @@ def food_detail(food):
     }
 
 
-def today_intake(db, day, targets):
-    row = db.execute("""SELECT payload,observed_at FROM observations
-        WHERE user_id=? AND source='xunji-food' AND day=?""", (USER, day)).fetchone()
-    records = json.loads(row[0]) if row else []
+def intake_metrics(records, targets):
     details = [r.get("foods") or {} for r in records]
-    meals = {key: [] for key in MEAL_NAMES}
-    for detail in details:
-        for food in detail.get("records") or []:
-            kind = str(food.get("meal_type") or "").lower()
-            kind = MEAL_TYPES.get(kind, kind)
-            meals.setdefault(kind if kind in MEAL_NAMES else "other", []).append(food_detail(food))
-    logged = any(meals.values()) or any((number(r.get("item_count")) or 0) > 0 for r in records)
+    logged = any(detail.get("records") for detail in details) or any(
+        (number(r.get("item_count")) or 0) > 0 for r in records
+    )
     totals = (records[0].get("totals") or {}) if logged and len(records) == 1 else {}
     limits = (details[0].get("limits") or {}) if len(details) == 1 else {}
     macros = {key: number(limits.get(key)) for key in ("carb", "protein", "fat")}
@@ -133,6 +129,20 @@ def today_intake(db, day, targets):
             "goal": goal if goal is not None and goal > 0 else None,
             "estimated_goal": source_goal and key == "calories_kcal" and estimated_energy,
         }
+    return logged, metrics
+
+
+def today_intake(db, day, targets):
+    row = db.execute("""SELECT payload,observed_at FROM observations
+        WHERE user_id=? AND source='xunji-food' AND day=?""", (USER, day)).fetchone()
+    records = json.loads(row[0]) if row else []
+    logged, metrics = intake_metrics(records, targets)
+    meals = {key: [] for key in MEAL_NAMES}
+    for record in records:
+        for food in (record.get("foods") or {}).get("records") or []:
+            kind = str(food.get("meal_type") or "").lower()
+            kind = MEAL_TYPES.get(kind, kind)
+            meals.setdefault(kind if kind in MEAL_NAMES else "other", []).append(food_detail(food))
     return {
         "day": day, "observed_at": row[1] if row else None, "logged": logged, "metrics": metrics,
         "meals": [{"name": MEAL_NAMES.get(key, "其他"), "foods": items,
@@ -140,6 +150,16 @@ def today_intake(db, day, targets):
                    if items and all(food["carbs_g"] is not None for food in items) else None}
                   for key, items in meals.items()],
     }
+
+
+def intake_goal_summary(intake, food):
+    if any(metric["goal"] is not None for metric in intake["metrics"].values()):
+        return {"day": intake["day"], "metrics": intake["metrics"]}
+    for day in sorted(food, reverse=True):
+        _, metrics = intake_metrics(food[day], {})
+        if any(metric["goal"] is not None for metric in metrics.values()):
+            return {"day": day, "metrics": metrics}
+    return {"day": None, "metrics": intake["metrics"]}
 
 
 def points_by_day(rows, kind):
@@ -258,10 +278,28 @@ def merged_workouts(data, history):
     return sorted(records, key=lambda event: (event["day"], event["start"] or 0))
 
 
-def training_calendar(data, today, workouts):
+def month_bounds(today):
     first = today.replace(day=1)
     next_month = (first + timedelta(days=32)).replace(day=1)
-    last = next_month - timedelta(days=1)
+    return first, next_month - timedelta(days=1)
+
+
+def month_grid(first, last, month_days):
+    return {"month": first.isoformat()[:7],
+            "days": [None] * first.weekday() + month_days + [None] * (6 - last.weekday())}
+
+
+def intake_calendar(food, today, versions):
+    first, last = month_bounds(today)
+    month_days = []
+    for day in dates(first, last):
+        logged, metrics = intake_metrics(food.get(day, []), profile_on(day, versions)["daily_intake_targets"])
+        month_days.append({"day": day, "logged": logged, **metrics["calories_kcal"]})
+    return month_grid(first, last, month_days)
+
+
+def training_calendar(data, today, workouts):
+    first, last = month_bounds(today)
     monday = today - timedelta(days=today.weekday())
     sunday = monday + timedelta(days=6)
     training = data["xunji-training"]
@@ -276,9 +314,8 @@ def training_calendar(data, today, workouts):
     month_days = [{"day": day, "synced": day in training and day in data["zepp-workout"],
                    "events": events[day]} for day in dates(first, last)]
     return {
-        "month": first.isoformat()[:7],
+        **month_grid(first, last, month_days),
         "week_start": monday.isoformat(), "week_end": sunday.isoformat(), "week_totals": totals,
-        "days": [None] * first.weekday() + month_days + [None] * (6 - last.weekday()),
     }
 
 
@@ -289,7 +326,8 @@ def dashboard(db, view, today):
     previous_start = max(BASELINE, last_complete - timedelta(days=13))
     today_str = today.isoformat()
     all_data = load_period(db, BASELINE.isoformat(), today_str)
-    plan = profile_on(today_str)
+    versions = profile_versions()
+    plan = profile_on(today_str, versions)
     points = heart_minutes({d: row for d, row in all_data["zepp"].items() if d >= previous_start.isoformat()})
     current = aggregate(all_data, dates(period_start, last_complete), points)
     previous = aggregate(all_data, dates(previous_start, period_start - timedelta(days=1)), points)
@@ -329,10 +367,13 @@ def dashboard(db, view, today):
             comparison.append({"name": name, "reps": reps, "previous": before, "current": after})
             seen.add(name)
     comparable_sleep = average(list(previous["sleep_minutes"].values())) if min(len(recent_sleep), len(previous["sleep_minutes"])) >= 4 else None
+    intake = today_intake(db, today_str, plan["daily_intake_targets"])
     return {
         "baseline": BASELINE.isoformat(), "start": first, "end": last, "plan": plan,
         "training_calendar": training_calendar(all_data, today, workouts),
-        "intake": today_intake(db, today_str, plan["daily_intake_targets"]),
+        "intake": intake,
+        "intake_goal_summary": intake_goal_summary(intake, all_data["xunji-food"]),
+        "intake_calendar": intake_calendar(all_data["xunji-food"], today, versions),
         "current": {"weight": weight_now, "baseline_weight": weight_then, "waist": waist[-1] if waist else None,
                     "sleep_avg": average(list(recent_sleep.values())), "sleep_days": len(recent_sleep),
                     "prior_sleep_avg": comparable_sleep,

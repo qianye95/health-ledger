@@ -339,6 +339,83 @@ const sourceTitles = { "xunji-training": "训记 · 训练", "xunji-body": "训�
 
 const trainingLabels = { strength: "力量", cardio: "有氧", other: "其他" };
 
+function renderIntakeGoals(summary, today) {
+  const { day, metrics } = summary;
+  const amount = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 1 });
+  const goalItems = [
+    ["每日热量", "calories_kcal", "kcal"], ["碳水", "carbs_g", "g"],
+    ["蛋白质", "protein_g", "g"], ["脂肪", "fat_g", "g"],
+  ];
+  $("#intake-daily-goals").replaceChildren(...goalItems.map(([label, key, unit]) => {
+    const item = element("div");
+    const goal = metrics[key].goal;
+    const value = element("dd", goal == null ? "未设置" : amount.format(goal));
+    if (goal != null) value.append(element("span", ` ${unit}`, "intake-goal-unit"));
+    item.append(element("dt", label), value);
+    return item;
+  }));
+  const energy = metrics.calories_kcal;
+  let basis = "暂无每日热量目标。";
+  let formula = "";
+  if (energy.estimated_goal) {
+    const [carbs, protein, fat] = goalItems.slice(1).map(([, key]) => amount.format(metrics[key].goal));
+    basis = "热量折算按碳水和蛋白质每克 4 kcal，脂肪每克 9 kcal。";
+    formula = `${carbs} × 4 ＋ ${protein} × 4 ＋ ${fat} × 9 ＝ ${amount.format(energy.goal)} kcal`;
+  } else if (energy.goal != null) {
+    basis = "热量采用已设置的每日目标。";
+  }
+  const source = day && day < today ? `目标来源 · ${shortDay(day)} 训记记录` : "";
+  $("#intake-goal-basis").textContent = basis;
+  $("#intake-goal-formula").textContent = formula;
+  $("#intake-goal-formula").hidden = !formula;
+  $("#intake-goal-source").textContent = source;
+  $("#intake-goal-source").hidden = !source;
+}
+
+function renderIntakeCalendar(calendar, today) {
+  const [year, month] = calendar.month.split("-").map(Number);
+  $("#intake-month").textContent = `${year} 年 ${month} 月 · 训记已记录摄入`;
+  const amount = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 1 });
+  $("#intake-days").replaceChildren(...calendar.days.map((entry) => {
+    const cell = element("li", null, "week-day intake-day");
+    if (!entry) {
+      cell.classList.add("outside-month");
+      cell.setAttribute("aria-hidden", "true");
+      return cell;
+    }
+    const { day, actual, goal, logged, estimated_goal } = entry;
+    const date = element("time", String(Number(day.slice(-2))), "week-date");
+    date.dateTime = day;
+    date.setAttribute("aria-label", day);
+    if (day === today) date.setAttribute("aria-current", "date");
+    cell.append(date);
+    if (day > today) return cell;
+    if (actual == null) {
+      cell.append(element("p", logged ? "热量缺失" : "无记录", "intake-day-empty"));
+      return cell;
+    }
+    cell.append(element("strong", amount.format(actual), "intake-day-actual"));
+    if (goal == null) {
+      cell.append(element("p", "目标缺失", "intake-day-empty"));
+      return cell;
+    }
+    const difference = actual - goal;
+    const direction = difference > 0 ? "超标" : difference < 0 ? "低于目标" : "达到目标";
+    const magnitude = Math.abs(difference);
+    const value = magnitude > 0 && magnitude < 0.05 ? "<0.1" : amount.format(magnitude);
+    const signed = (difference > 0 ? "+" : difference < 0 ? "−" : "") + value;
+    const delta = element("span", signed, "intake-day-delta");
+    delta.setAttribute("aria-label", `${direction} ${value} kcal，${estimated_goal ? "折算目标" : "目标"} ${amount.format(goal)} kcal`);
+    delta.title = `${estimated_goal ? "折算目标" : "目标"} ${amount.format(goal)} kcal`;
+    cell.append(delta);
+    if (difference > 0) {
+      cell.classList.add("over-target");
+      cell.append(element("span", "超标", "intake-day-flag"));
+    }
+    return cell;
+  }));
+}
+
 function renderTrainingCalendar(calendar, today, plan) {
   const [year, month] = calendar.month.split("-").map(Number);
   $("#calendar-caption").textContent = `${year} 年 ${month} 月 · 本周 ${shortDay(calendar.week_start)}–${shortDay(calendar.week_end)}`;
@@ -425,6 +502,8 @@ function fatLossCard(label, unit, start, reading, goal, goalLabel) {
 function render(payload) {
   const { current: c, plan: p, plan_period: period } = payload;
   renderIntake(payload.intake);
+  renderIntakeGoals(payload.intake_goal_summary, payload.end);
+  renderIntakeCalendar(payload.intake_calendar, payload.end);
   const base = c.baseline_weight;
   const weight = inJin(c.weight?.value);
   const target = inJin(p.target_weight_kg);

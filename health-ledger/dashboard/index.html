@@ -53,6 +53,26 @@
           <h2>今日饮食明细</h2>
           <div id="meal-grid" class="meal-grid"></div>
         </div>
+        <section class="meal-section" aria-labelledby="intake-calendar-heading">
+          <div class="section-heading">
+            <div><h2 id="intake-calendar-heading">热量日历</h2><p id="intake-month"></p></div>
+            <p id="intake-calendar-legend">单位 kcal · ＋高于目标 · −低于目标</p>
+          </div>
+          <div class="intake-goal-summary">
+            <dl id="intake-daily-goals" aria-label="每日摄入目标"></dl>
+            <div class="intake-goal-notes">
+              <p id="intake-goal-basis"></p>
+              <p id="intake-goal-formula"></p>
+              <p id="intake-goal-source"></p>
+            </div>
+          </div>
+          <div class="week-calendar intake-calendar">
+            <div class="week-weekdays" aria-hidden="true">
+              <span>周一</span><span>周二</span><span>周三</span><span>周四</span><span>周五</span><span>周六</span><span>周日</span>
+            </div>
+            <ol id="intake-days" class="week-days" aria-label="本月每日摄入热量" aria-describedby="intake-calendar-legend" role="list"></ol>
+          </div>
+        </section>
       </section>
       <section data-page="trends" class="section" aria-labelledby="trend-heading" hidden>
         <div class="section-heading">
