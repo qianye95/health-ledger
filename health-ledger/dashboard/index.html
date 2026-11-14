@@ -81,13 +81,22 @@
       <section data-page="trends" class="section" aria-labelledby="trend-heading" hidden>
         <div class="section-heading">
           <div><h2 id="trend-heading">身体趋势</h2><p id="range-caption"></p></div>
-          <div class="periods" role="group" aria-label="趋势时间范围">
-            <button type="button" data-range="7" aria-pressed="false">近 7 天</button>
-            <button type="button" data-range="30" aria-pressed="false">近 30 天</button>
-            <button type="button" data-range="60" aria-pressed="false">近 60 天</button>
-            <button type="button" data-range="all" aria-pressed="true">自 10 月 1 日</button>
+          <div class="periods">
+            <label for="trend-range">时间范围</label>
+            <select id="trend-range">
+              <option value="7">近 7 天</option>
+              <option value="30" selected>近 30 天</option>
+              <option value="60">近 60 天</option>
+              <option value="all">自 10 月 1 日</option>
+              <option value="custom">自定义起止日期</option>
+            </select>
           </div>
         </div>
+        <form id="custom-range" class="date-range" hidden>
+          <label>起始日期 <input id="trend-start" type="date" required></label>
+          <label>结束日期 <input id="trend-end" type="date" required></label>
+          <button class="refresh" type="submit">应用</button>
+        </form>
         <div class="charts">
           <article class="panel chart-card primary" data-chart="weight">
             <div class="chart-heading"><div><h3>体重走势</h3><p>kg · 每日实测均值</p></div><strong data-summary></strong></div>

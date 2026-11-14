@@ -155,7 +155,7 @@ function chart(card) {
     latestLabel.hidden = true;
     canvas.parentElement.append(latestLabel);
   }
-  let rows = [], trend = [], start = 0, end = 0, focus = null, frame = null;
+  let rows = [], trend = [], start = 0, end = 0, today = 0, focus = null, frame = null;
 
   function draw() {
     const box = canvas.getBoundingClientRect();
@@ -237,7 +237,7 @@ function chart(card) {
     if (spec.bar) {
       const barWidth = Math.min(14, innerWidth / span * .7);
       for (const p of rows) {
-        ctx.fillStyle = dayIndex(p.day) === end ? "#c5a881" : spec.color;
+        ctx.fillStyle = dayIndex(p.day) === today ? "#c5a881" : spec.color;
         ctx.fillRect(x(dayIndex(p.day)) - barWidth / 2, y(p.value), barWidth, y(0) - y(p.value));
       }
     } else {
@@ -249,7 +249,7 @@ function chart(card) {
       const latest = rows.at(-1);
       const day = dayIndex(latest.day);
       const pointX = x(day), pointY = y(latest.value);
-      const partial = spec.bar && day === end ? " · 今日部分" : "";
+      const partial = spec.bar && day === today ? " · 今日部分" : "";
       latestLabel.textContent = `${shortDay(latest.day)} · ${fmt(latest.value / spec.scale, spec.digits)} ${spec.unit}${partial}`;
       latestLabel.hidden = focus != null;
       if (!latestLabel.hidden) {
@@ -282,7 +282,7 @@ function chart(card) {
       ctx.stroke();
       ctx.setLineDash([]);
       const actual = point ? `${fmt(point.value / spec.scale, spec.digits)} ${spec.unit}` : "无实测";
-      const partial = spec.bar && focus === end && point ? " · 今日部分数据" : "";
+      const partial = spec.bar && focus === today && point ? " · 今日部分数据" : "";
       tip.textContent = `${shortDay(day)} · ${actual}${smooth ? ` · 7 日均值 ${fmt(smooth.value, 1)} kg` : ""}${partial}`;
       canvas.setAttribute("aria-label", `${spec.label}走势，${tip.textContent}`);
     }
@@ -317,8 +317,9 @@ function chart(card) {
     trend = kind === "weight" ? payload.series.trend : [];
     start = dayIndex(payload.start);
     end = dayIndex(payload.end);
+    today = dayIndex(payload.today);
     focus = null;
-    const compared = kind === "steps" ? rows.filter((p) => p.day !== payload.end) : rows;
+    const compared = kind === "steps" ? rows.filter((p) => p.day !== payload.today) : rows;
     const value = average(compared);
     const summary = $("[data-summary]", card);
     if (!rows.length) summary.textContent = "暂无实测";
@@ -502,8 +503,8 @@ function fatLossCard(label, unit, start, reading, goal, goalLabel) {
 function render(payload) {
   const { current: c, plan: p, plan_period: period } = payload;
   renderIntake(payload.intake);
-  renderIntakeGoals(payload.intake_goal_summary, payload.end);
-  renderIntakeCalendar(payload.intake_calendar, payload.end);
+  renderIntakeGoals(payload.intake_goal_summary, payload.today);
+  renderIntakeCalendar(payload.intake_calendar, payload.today);
   const base = c.baseline_weight;
   const weight = inJin(c.weight?.value);
   const target = inJin(p.target_weight_kg);
@@ -528,7 +529,7 @@ function render(payload) {
   );
   $("#range-caption").textContent = `${payload.start} 至 ${payload.end} · 跟踪起点 ${payload.baseline}`;
   $("#review-caption").textContent = `近 7 个完整日 · ${shortDay(period.start)}–${shortDay(period.end)}`;
-  renderTrainingCalendar(payload.training_calendar, payload.end, p);
+  renderTrainingCalendar(payload.training_calendar, payload.today, p);
 
   const sessionPanel = $("#sessions");
   sessionPanel.replaceChildren();
@@ -578,7 +579,8 @@ function render(payload) {
   $("#status").textContent = "已读取云端总账 · 北京时间";
 }
 
-let activeRange = "all";
+let activeRange = new URLSearchParams({ range: "30" });
+let visibleDates;
 let requestId = 0;
 const pages = [...document.querySelectorAll("[data-page]")];
 const pageLinks = [...document.querySelectorAll("#pages a")];
@@ -596,10 +598,15 @@ function showPage() {
 async function refresh() {
   const id = ++requestId;
   try {
-    const response = await fetch(`/api/dashboard?range=${activeRange}`, { cache: "no-store" });
+    const response = await fetch(`/api/dashboard?${activeRange}`, { cache: "no-store" });
     if (!response.ok) throw new Error("数据暂时不可读取");
     const data = await response.json();
     if (requestId !== id) return;
+    visibleDates = data;
+    for (const selector of ["#trend-start", "#trend-end"]) {
+      $(selector).min = data.baseline;
+      $(selector).max = data.today;
+    }
     $("#error").hidden = true;
     render(data);
   } catch {
@@ -615,13 +622,33 @@ window.addEventListener("hashchange", () => {
   window.scrollTo(0, 0);
 });
 showPage();
-for (const button of document.querySelectorAll("[data-range]")) {
-  button.addEventListener("click", () => {
-    activeRange = button.dataset.range;
-    for (const other of document.querySelectorAll("[data-range]")) other.setAttribute("aria-pressed", String(other === button));
-    refresh();
-  });
+const rangeSelect = $("#trend-range");
+const customRange = $("#custom-range");
+const trendStart = $("#trend-start");
+const trendEnd = $("#trend-end");
+rangeSelect.addEventListener("change", () => {
+  customRange.hidden = rangeSelect.value !== "custom";
+  if (!customRange.hidden) {
+    trendStart.value ||= visibleDates?.start ?? "";
+    trendEnd.value ||= visibleDates?.end ?? "";
+    return;
+  }
+  activeRange = new URLSearchParams({ range: rangeSelect.value });
+  refresh();
+});
+for (const input of [trendStart, trendEnd]) {
+  input.addEventListener("input", () => trendEnd.setCustomValidity(""));
 }
+customRange.addEventListener("submit", (event) => {
+  event.preventDefault();
+  if (trendEnd.value < trendStart.value) {
+    trendEnd.setCustomValidity("结束日期不能早于起始日期");
+    trendEnd.reportValidity();
+    return;
+  }
+  activeRange = new URLSearchParams({ range: "custom", start: trendStart.value, end: trendEnd.value });
+  refresh();
+});
 $("#refresh").addEventListener("click", refresh);
 $("#sync-xunji").addEventListener("click", async (event) => {
   const button = event.currentTarget;

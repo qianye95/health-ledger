@@ -322,7 +322,7 @@ def training_calendar(data, today, workouts):
     }
 
 
-def dashboard(db, view, today):
+def dashboard(db, view, today, custom_dates=None):
     today = max(today, BASELINE)
     last_complete = today - timedelta(days=1)
     period_start = max(BASELINE, last_complete - timedelta(days=6))
@@ -344,9 +344,13 @@ def dashboard(db, view, today):
         "resting": sensor_points(all_data["zepp"], "resting"),
         "steps": sensor_points(all_data["zepp"], "steps"),
     }
-    days = WINDOWS[view]
-    start = max(BASELINE, today - timedelta(days=days - 1)) if days else BASELINE
-    first, last = start.isoformat(), today_str
+    if custom_dates is not None:
+        start, end = custom_dates
+    else:
+        days = WINDOWS[view]
+        start = max(BASELINE, today - timedelta(days=days - 1)) if days else BASELINE
+        end = today
+    first, last = start.isoformat(), end.isoformat()
     weight = measures["weight"]
     weight_now = weight[-1] if weight else None
     weight_then = weight[0] if weight else None
@@ -354,7 +358,7 @@ def dashboard(db, view, today):
     recent_sleep = current["sleep_minutes"]
     weight_by_day = {p["day"]: p["value"] for p in weight}
     trend = []
-    for day in dates(start, today):
+    for day in dates(start, end):
         point_day = date.fromisoformat(day)
         recent = dates(max(BASELINE, point_day - timedelta(days=6)), point_day)
         values = [weight_by_day[d] for d in recent if d in weight_by_day]
@@ -372,7 +376,7 @@ def dashboard(db, view, today):
     comparable_sleep = average(list(previous["sleep_minutes"].values())) if min(len(recent_sleep), len(previous["sleep_minutes"])) >= 4 else None
     intake = today_intake(db, today_str, plan["daily_intake_targets"])
     return {
-        "baseline": BASELINE.isoformat(), "start": first, "end": last, "plan": plan,
+        "baseline": BASELINE.isoformat(), "start": first, "end": last, "today": today_str, "plan": plan,
         "training_calendar": training_calendar(all_data, today, workouts),
         "intake": intake,
         "intake_goal_summary": intake_goal_summary(intake, all_data["xunji-food"]),
@@ -391,7 +395,7 @@ def dashboard(db, view, today):
         "sessions": sessions, "comparison": comparison[:4],
         "guidance": assess(current, previous, plan, [event for event in workouts
                            if period_start.isoformat() <= event["day"] <= last_complete.isoformat()]),
-        "sources": sources(db, last),
+        "sources": sources(db, today_str),
     }
 
 
@@ -424,15 +428,28 @@ class Handler(BaseHTTPRequestHandler):
             filename, content_type = STATIC[url.path]
             self.respond(200, (HERE / "dashboard" / filename).read_bytes(), content_type)
         elif url.path == "/api/dashboard":
-            view, = parse_qs(url.query).get("range", ["all"])[:1]
-            if view not in WINDOWS:
+            query = parse_qs(url.query)
+            view, = query.get("range", ["all"])[:1]
+            today = datetime.now(TZ).date()
+            custom_dates = None
+            if view == "custom":
+                try:
+                    start = date.fromisoformat(query["start"][0])
+                    end = date.fromisoformat(query["end"][0])
+                    if not BASELINE <= start <= end <= today:
+                        raise ValueError("Outside supported dates")
+                    custom_dates = (start, end)
+                except (KeyError, ValueError):
+                    self.respond(400, b'{"error":"Invalid custom dates"}', "application/json")
+                    return
+            elif view not in WINDOWS:
                 self.respond(400, b'{"error":"Invalid date range"}', "application/json")
                 return
             try:
                 uri = (STATE / "ledger.sqlite3").as_uri() + "?mode=ro"
                 with closing(sqlite3.connect(uri, uri=True, timeout=5)) as db:
                     db.execute("BEGIN")
-                    result = dashboard(db, view, datetime.now(TZ).date())
+                    result = dashboard(db, view, today, custom_dates)
                 payload = json.dumps(result, ensure_ascii=False, allow_nan=False).encode()
             except (OSError, ValueError, TypeError, sqlite3.Error):
                 self.respond(503, '{"error":"总账暂时不可读取，请稍后刷新。"}'.encode(), "application/json")
