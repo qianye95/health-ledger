@@ -11,7 +11,8 @@ User=xunji-agent
 Group=xunji-agent
 WorkingDirectory=/home/xunji-agent/health-ledger
 Environment=PATH=/home/xunji-agent/.openclaw/bin:/home/xunji-agent/.openclaw/tools/node/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart=/usr/bin/python3 -B ledger.py daily-report --send
+ExecStart=/usr/bin/python3 -B ledger.py daily-report
+ExecStart=/usr/bin/python3 -B ledger.py send-saved-report daily
 UMask=0077
 TimeoutStartSec=10min
 NoNewPrivileges=true

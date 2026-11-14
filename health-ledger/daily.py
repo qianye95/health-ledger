@@ -2,8 +2,8 @@
 from datetime import date, timedelta
 
 from dashboard import dashboard, profile_on, profile_versions, today_intake
-from ledger import DASHBOARD_URL, STATE, USER, SourceError, atomic, now
-from weekly import send_wechat
+from ledger import DASHBOARD_URL, STATE, USER, SourceError, atomic
+from delivery import deliver_report, send_wechat
 
 
 def amount(value):
@@ -89,7 +89,7 @@ def report_text(payload, yesterday):
 
 
 def generate(db, today, *, send=False, dry_run=False, resend=False):
-    if (send or dry_run or resend) and not DASHBOARD_URL:
+    if (send or resend or dry_run) and not DASHBOARD_URL:
         raise SourceError("请配置 HEALTH_DASHBOARD_URL")
     day = today.isoformat()
     if send and not resend and db.execute(
@@ -109,8 +109,4 @@ def generate(db, today, *, send=False, dry_run=False, resend=False):
         send_wechat(report, dry_run=True)
         print("微信投递参数验证通过")
     if send or resend:
-        send_wechat(report)
-        with db:
-            db.execute("""INSERT INTO daily_deliveries VALUES (?,?,?)
-                          ON CONFLICT(user_id, day) DO UPDATE SET sent_at=excluded.sent_at""", (USER, day, now()))
-        print("日报已投递到绑定微信")
+        deliver_report(db, "daily", day, report, resend=resend)

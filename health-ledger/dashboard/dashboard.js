@@ -576,7 +576,7 @@ function render(payload) {
     hour: "2-digit", minute: "2-digit", hourCycle: "h23",
   });
   const deliveryStates = {
-    sent: "已发送", waiting: "未到时间", running: "正在执行",
+    sent: "已提交微信", waiting: "未到时间", running: "正在执行",
     failed: "推送失败", unconfirmed: "暂无送达记录", off: "今日无排程",
   };
   $("#delivery-grid").replaceChildren(...payload.report_delivery.map((report) => {
@@ -596,6 +596,7 @@ function render(payload) {
     heading.append(element("h4", title), actions);
     card.append(heading, element("div", report.schedule, "delivery-time"));
     if (report.sent_at) card.append(element("p", `发送记录 · ${formatStamp.format(new Date(report.sent_at))}`));
+    if (report.detail) card.append(element("p", report.detail));
     return card;
   }));
   const xunjiSources = $("#xunji-sources");
@@ -608,7 +609,7 @@ function render(payload) {
     description.append(element("h5", sourceTitles[item.source]),
       element("p", item.last ? `数据截至 ${item.last}` : "尚无入账日期"));
     const state = item.run?.status;
-    const label = { ok: "已同步", error: "同步失败", pending: "待授权" }[state] ?? "待同步";
+    const label = { ok: "已同步", partial: "部分成功", error: "同步失败", pending: "待授权" }[state] ?? "待同步";
     const result = element("div", null, "source-result");
     result.append(element("span", label, `sync-badge ${state ?? ""}`));
     if (item.observed_at) {

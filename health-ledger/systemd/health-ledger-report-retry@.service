@@ -7,6 +7,7 @@ Wants=xunji-openclaw.service
 User=xunji-agent
 Group=xunji-agent
 WorkingDirectory=/home/xunji-agent/health-ledger
+EnvironmentFile=-/etc/health-ledger/dashboard.env
 Environment=PATH=/home/xunji-agent/.openclaw/bin:/home/xunji-agent/.openclaw/tools/node/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=/usr/bin/python3 -B ledger.py retry-saved-report
 StandardInput=socket

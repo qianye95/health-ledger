@@ -1,0 +1,12 @@
+[Unit]
+Description=Encrypt the health ledger backup
+
+[Service]
+Type=oneshot
+User=xunji-agent
+Group=xunji-agent
+WorkingDirectory=/home/xunji-agent/health-ledger
+ExecStart=/home/xunji-agent/health-ledger/.venv/bin/python -B backup.py
+UMask=0077
+TimeoutStartSec=20min
+NoNewPrivileges=true

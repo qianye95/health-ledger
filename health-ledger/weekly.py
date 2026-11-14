@@ -1,141 +1,12 @@
 """Build a reproducible weekly health review from normalized day partitions."""
-from collections import Counter
 from datetime import date, datetime, timedelta
 import json
-from math import isfinite
 from pathlib import Path
 from statistics import mean
-import subprocess
-from uuid import uuid4
 
-from ledger import DASHBOARD_URL, SOURCES, STATE, TZ, USER, SourceError, atomic, dates, now
-
-
-def number(value):
-    if type(value) not in (int, float, str):
-        return None
-    try:
-        parsed = float(value)
-    except ValueError:
-        return None
-    return parsed if isfinite(parsed) else None
-
-
-def load_period(db, start, end):
-    data = {source: {} for source in SOURCES}
-    for source, day, text in db.execute("""
-        SELECT source,day,payload FROM observations
-        WHERE user_id=? AND day BETWEEN ? AND ? ORDER BY day
-    """, (USER, start, end)):
-        data[source][day] = json.loads(text)
-    return data
-
-
-def sleep_minutes(summary, day):
-    sleep = summary.get("slp") or {}
-    end = sleep.get("ed")
-    if not isinstance(end, int) or end <= 0 or datetime.fromtimestamp(end, TZ).date().isoformat() != day:
-        return None
-    totals = Counter()
-    prev = None
-    for stage in sleep.get("stage") or []:
-        start, stop, mode = (stage.get(k) for k in ("start", "stop", "mode"))
-        if not all(type(v) is int for v in (start, stop, mode)):
-            return None
-        if stop < start or mode not in (4, 5, 7, 8) or (prev is not None and start != prev + 1):
-            return None
-        totals[mode] += stop - start + 1
-        prev = stop
-    if not totals or any(totals[mode] != sleep.get(key) for mode, key in ((4, "lt"), (5, "dp"), (7, "wk"))):
-        return None
-    return totals[4] + totals[5] + totals[8]
-
-
-def timestamp(value):
-    if type(value) not in (int, float) or value <= 0:
-        return None
-    return value / 1000 if value >= 10**12 else value
-
-
-def heart_minutes(zepp):
-    points = {}
-    for day, row in zepp.items():
-        midnight = int(datetime.fromisoformat(day).replace(tzinfo=TZ).timestamp())
-        for item in row.get("heart_rate") or []:
-            minute, bpm = item.get("minute"), item.get("bpm")
-            if type(minute) is int and 0 <= minute < 1440 and type(bpm) is int and 0 < bpm <= 250:
-                points[midnight // 60 + minute] = bpm
-    return points
-
-
-def pair_heart(training, points):
-    start, end = timestamp(training.get("start")), timestamp(training.get("end"))
-    if start is None or end is None or not 0 < end - start <= 86400:
-        return None
-    first, stop = int(start // 60), int((end - 0.001) // 60) + 1
-    values = [points[k] for k in range(first, stop) if k in points]
-    return {"minutes": len(values), "window_minutes": stop - first,
-            "avg_bpm": round(mean(values), 1) if values else None, "max_sample_bpm": max(values, default=None)}
-
-
-def is_cardio(training):
-    movements = training.get("movements") or []
-    return bool(movements) and all(movement.get("cardio") is True for movement in movements)
-
-
-def aggregate(data, days, points):
-    weight, steps, rhr, sleep, sessions = {}, {}, {}, {}, []
-    food_days, food_kcal, food_protein = set(), {}, {}
-    for day in days:
-        food = data["xunji-food"].get(day, [])
-        logged = [item for item in food if item.get("foods") or (number(item.get("item_count")) or 0) > 0]
-        if logged:
-            food_days.add(day)
-        if len(logged) == 1:
-            totals = logged[0].get("totals") or {}
-            for field, target in (("totalCal", food_kcal), ("totalProtein", food_protein)):
-                value = number(totals.get(field))
-                if value is not None and value >= 0:
-                    target[day] = value
-        values = [number(row.get("value")) for row in data["xunji-body"].get(day, []) if row.get("type") == "weight"]
-        values = [v for v in values if v is not None and v > 0]
-        if values:
-            weight[day] = mean(values)
-        summary = data["zepp"].get(day, {}).get("summary") or {}
-        step = number((summary.get("stp") or {}).get("ttl"))
-        resting = number((summary.get("slp") or {}).get("rhr"))
-        asleep = sleep_minutes(summary, day)
-        if step is not None and step >= 0:
-            steps[day] = step
-        if resting is not None and resting > 0:
-            rhr[day] = resting
-        if asleep is not None:
-            sleep[day] = asleep
-        for row in data["xunji-training"].get(day, []):
-            lifts = {}
-            for move in row.get("movements") or []:
-                name = move.get("name")
-                if move.get("cardio") is True or not name:
-                    continue
-                groups = []
-                for group in move.get("sets") or []:
-                    if group.get("done") is not True or group.get("setType") in ("热", "warmup"):
-                        continue
-                    kg, reps = number(group.get("weight")), number(group.get("reps"))
-                    unit = group.get("unit")
-                    if kg is not None and kg >= 0 and reps is not None and reps > 0 and unit in ("kg", "lb"):
-                        groups.append({"kg": round(kg * (0.45359237 if unit == "lb" else 1), 2), "reps": reps})
-                if groups:
-                    lifts.setdefault(name, []).extend(groups)
-            if lifts:
-                sessions.append({"date": day, "title": row.get("title") or "力量训练",
-                                 "start": timestamp(row.get("start")), "end": timestamp(row.get("end")),
-                                 "lifts": lifts, "heart": pair_heart(row, points)})
-    return {"weights": weight, "steps": steps, "resting_heart_rate": rhr, "sleep_minutes": sleep,
-            "sessions": sessions, "food_logged_days": len(food_days), "recorded_kcal": food_kcal,
-            "recorded_protein_g": food_protein,
-            "coverage": {k: sum(d in v for d in days) for k, v in data.items()},
-            "cardio_sessions": sum(is_cardio(r) for d in days for r in data["xunji-training"].get(d, []))}
+from ledger import SOURCES, STATE, TZ, USER, atomic, dates, now
+from delivery import deliver_report
+from measurements import age_on, aggregate, heart_minutes, lift_changes, load_period, merged_workouts, number
 
 
 def waist_history(db, end, *, min_gap=0):
@@ -170,27 +41,6 @@ def average(values):
 def describe(values, fmt):
     val = average(values)
     return f"{format(val, fmt)}（{len(values)}/7 天）" if val is not None else "缺数据"
-
-
-def age_on(birthday, day):
-    born, as_of = date.fromisoformat(birthday), date.fromisoformat(day)
-    return as_of.year - born.year - ((as_of.month, as_of.day) < (born.month, born.day))
-
-
-def lift_changes(current, previous):
-    def best_by_reps(period):
-        result = {}
-        for session in period["sessions"]:
-            for name, sets in session["lifts"].items():
-                for group in sets:
-                    key = (name, group["reps"])
-                    result[key] = max(result.get(key, 0), group["kg"])
-        return result
-
-    latest, prior = best_by_reps(current), best_by_reps(previous)
-    return sorted(((name, reps, prior[name, reps], latest[name, reps])
-                   for name, reps in latest.keys() & prior.keys()),
-                  key=lambda row: (row[0], -row[1]))
 
 
 def report_text(end, start, current, previous, weeks, waist, profile, latest, energy):
@@ -284,50 +134,7 @@ def report_text(end, start, current, previous, weeks, waist, profile, latest, en
     return "\n".join(lines) + "\n"
 
 
-def send_wechat(body, *, dry_run=False, via_gateway=False):
-    account_root = Path.home() / ".openclaw/openclaw-weixin/accounts"
-    accounts = []
-    for path in account_root.glob("*.json"):
-        if path.name.endswith((".sync.json", ".context-tokens.json")):
-            continue
-        uid = json.loads(path.read_text()).get("userId")
-        if isinstance(uid, str) and uid.strip():
-            accounts.append((path.stem, uid.strip()))
-    if len(accounts) != 1:
-        raise SourceError("微信绑定账号无法唯一确认")
-    account, recipient = accounts[0]
-    cli = Path.home() / ".openclaw/bin/openclaw"
-    command = [str(cli), "message", "send", "--channel", "openclaw-weixin",
-               "--account", account, "--target", recipient, "--message", body, "--json"]
-    if via_gateway:
-        params = {"channel": "openclaw-weixin", "accountId": account, "to": recipient,
-                  "message": body, "idempotencyKey": str(uuid4())}
-        command = [str(cli), "gateway", "call", "send", "--json", "--timeout", "45000",
-                   "--params", json.dumps(params, ensure_ascii=False)]
-    if dry_run:
-        command.append("--dry-run")
-    try:
-        result = subprocess.run(command, capture_output=True, timeout=60, check=False)
-    except subprocess.TimeoutExpired:
-        raise SourceError("微信投递状态未知") from None
-    if result.returncode:
-        raise SourceError("微信投递失败")
-
-
-def deliver(db, end, body, *, via_gateway=False):
-    if db.execute("SELECT 1 FROM deliveries WHERE user_id=? AND week_end=?", (USER, end)).fetchone():
-        print("本周周报已发送")
-        return
-    if not DASHBOARD_URL:
-        raise SourceError("请配置 HEALTH_DASHBOARD_URL")
-    send_wechat(f"{body.rstrip()}\n\n身体总账\n{DASHBOARD_URL}", via_gateway=via_gateway)
-    with db:
-        db.execute("INSERT INTO deliveries VALUES (?,?,?)", (USER, end, now()))
-    print("周报已投递到绑定微信")
-
-
 def generate(db, end, send):
-    from dashboard import merged_workouts
     from energy_review import energy_review
 
     start = end - timedelta(days=6)
@@ -365,4 +172,4 @@ def generate(db, end, send):
     atomic(folder / "report.md", report.encode())
     print(f"周报已保存，统计期 {start_day} 至 {end_day}")
     if send:
-        deliver(db, end_day, report)
+        deliver_report(db, "weekly", end_day, report)

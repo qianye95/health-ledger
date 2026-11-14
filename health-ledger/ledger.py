@@ -47,6 +47,10 @@ CREATE TABLE IF NOT EXISTS daily_deliveries (
     user_id TEXT NOT NULL, day TEXT NOT NULL, sent_at TEXT NOT NULL,
     PRIMARY KEY(user_id, day)
 );
+CREATE TABLE IF NOT EXISTS report_attempts (
+    id INTEGER PRIMARY KEY, user_id TEXT NOT NULL, kind TEXT NOT NULL,
+    period TEXT NOT NULL, attempted_at TEXT NOT NULL, status TEXT NOT NULL, detail TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS zepp_backfill (
     user_id TEXT NOT NULL, start_day TEXT NOT NULL, end_day TEXT NOT NULL,
     completed_at TEXT NOT NULL, days_returned INTEGER NOT NULL,
@@ -59,6 +63,14 @@ class SourceError(Exception):
     pass
 
 
+class DeliveryUnknown(SourceError):
+    pass
+
+
+class PartialSync(SourceError):
+    pass
+
+
 def now():
     return datetime.now(timezone.utc).isoformat(timespec="microseconds")
 
@@ -68,8 +80,6 @@ def report_file(kind, period):
 
 
 def retry_saved_report(db, kind, today):
-    from weekly import deliver, send_wechat
-
     if kind not in ("daily", "weekly"):
         raise SourceError("无效的报告类型")
     saturday = today - timedelta(days=(today.weekday() - 5) % 7)
@@ -77,14 +87,8 @@ def retry_saved_report(db, kind, today):
     path = report_file(kind, period)
     if not path.is_file():
         raise SourceError("没有可重发的报告")
-    body = path.read_text()
-    if kind == "weekly":
-        deliver(db, period, body, via_gateway=True)
-    elif not db.execute("SELECT 1 FROM daily_deliveries WHERE user_id=? AND day=?",
-                        (USER, period)).fetchone():
-        send_wechat(body, via_gateway=True)
-        with db:
-            db.execute("INSERT INTO daily_deliveries VALUES (?,?,?)", (USER, period, now()))
+    from delivery import deliver_report
+    deliver_report(db, kind, period, path.read_text())
 
 
 def dates(start, end):
@@ -117,18 +121,27 @@ def snapshot(source, payload, start, end, fetched):
     return str(path.relative_to(STATE))
 
 
-def ingest(db, source, payload, parts, start, end, *, observed=None):
+def ingest(db, source, payload, parts, start, end, *, observed=None, preserve_empty=False):
     fetched = now()
     observed = observed or fetched
     ref = snapshot(source, payload, start, end, observed)
     with db:
+        previous = dict(db.execute("""SELECT day,payload FROM observations
+                                      WHERE user_id=? AND source=? AND day BETWEEN ? AND ?""",
+                                   (USER, source, start, end))) if preserve_empty else {}
+        unconfirmed = [day for day, rows in parts.items() if not rows and previous.get(day, "[]") != "[]"]
         db.executemany("""
             INSERT INTO observations VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(user_id, source, day) DO UPDATE SET
                 payload=excluded.payload, observed_at=excluded.observed_at, snapshot=excluded.snapshot
             WHERE excluded.observed_at >= observations.observed_at
-        """, [(USER, source, day, encoded(row), observed, ref) for day, row in parts.items()])
-        log_run(db, source, start, end, "ok", f"{len(parts)} 个日期")
+              AND NOT (? AND excluded.payload = '[]' AND observations.payload <> '[]')
+        """, [(USER, source, day, encoded(row), observed, ref, preserve_empty) for day, row in parts.items()])
+        if unconfirmed:
+            log_run(db, source, start, end, "partial", "上游未返回记录，保留原数据：" + "、".join(unconfirmed))
+        else:
+            log_run(db, source, start, end, "ok", f"{len(parts)} 个日期")
+    return not unconfirmed
 
 
 def log_run(db, source, start, end, status, detail):
@@ -182,8 +195,9 @@ def group_rows(items, days):
         if not isinstance(item, dict):
             raise SourceError("响应中的记录格式有误")
         day = iso_day(item.get("datestr") or item.get("date"))
-        if day in parts:
-            parts[day].append(item)
+        if day not in parts:
+            raise SourceError(f"上游返回请求范围外的日期 {day}")
+        parts[day].append(item)
     return parts
 
 
@@ -273,7 +287,9 @@ def fetch_zepp(db, start, end, *, workouts=False):
         if (payload["requested_from"], payload["requested_to"]) != (start, end):
             raise SourceError("Zepp 运动导出范围与请求不一致")
         parts = group_rows(payload["records"], dates(date.fromisoformat(start), date.fromisoformat(end)))
-        ingest(db, "zepp-workout", payload, parts, start, end, observed=payload["fetched_at"])
+        if not ingest(db, "zepp-workout", payload, parts, start, end,
+                      observed=payload["fetched_at"], preserve_empty=True):
+            raise PartialSync("Zepp 部分运动日期未返回，已保留原数据")
         return sum(map(len, parts.values()))
     except subprocess.TimeoutExpired:
         raise SourceError("Zepp 云端采集超时") from None
@@ -319,7 +335,9 @@ def sync(db, start, end, *, zepp_end=None, body_end=None, xunji_end=None, source
     for source in sources:
         status = "error"
         if source == "xunji-training":
-            for day in (dates(start, xunji_end) if xunji_end else days):
+            source_days = dates(start, xunji_end) if xunji_end else days
+            failed_days = []
+            for day in source_days:
                 try:
                     payload = fetch_xunji("https://trains.xunjiapp.cn" + xunji.READ_PATH, "XUNJI_TRAIN_KEY",
                                           {"schema_version": xunji.SCHEMA, "datestr": day, "include_full_data": True})
@@ -327,7 +345,13 @@ def sync(db, start, end, *, zepp_end=None, body_end=None, xunji_end=None, source
                 except (SourceError, xunji.Failure, ValueError) as error:
                     with db:
                         log_run(db, source, day, day, "error", str(error))
-                    failed.append(source)
+                    failed_days.append(day)
+            if failed_days:
+                failed.append(source)
+                status = "partial" if len(failed_days) < len(source_days) else "error"
+                with db:
+                    log_run(db, source, source_days[0], source_days[-1], status,
+                            "失败日期：" + "、".join(failed_days))
             continue
         source_end = {"zepp": zepp_end, "zepp-workout": zepp_end,
                       "xunji-body": xunji_end or body_end, "xunji-food": xunji_end}.get(source) or end
@@ -338,7 +362,10 @@ def sync(db, start, end, *, zepp_end=None, body_end=None, xunji_end=None, source
                 fetch_zepp(db, days[0], last, workouts=source == "zepp-workout")
             else:
                 payload, parts = fetch_range(source, days[0], last, source_days)
-                ingest(db, source, payload, parts, days[0], last)
+                if not ingest(db, source, payload, parts, days[0], last, preserve_empty=True):
+                    failed.append(source)
+        except PartialSync:
+            failed.append(source)
         except (SourceError, ValueError, OSError, KeyError, TypeError, subprocess.TimeoutExpired) as error:
             detail = str(error) if isinstance(error, SourceError) else f"导出格式或读取失败（{type(error).__name__}）"
             if detail.startswith("等待"):
@@ -396,6 +423,8 @@ def main():
     delivery.add_argument("--dry-run", action="store_true", help="核对微信投递参数，不发送")
     delivery.add_argument("--resend", action="store_true", help="重新推送今天的日报")
     commands.add_parser("retry-saved-report", help="通过本机网关重发已保存的报告")
+    saved = commands.add_parser("send-saved-report", help="发送已保存的报告")
+    saved.add_argument("kind", choices=("daily", "weekly"))
     args = parser.parse_args()
     os.umask(0o077)
     STATE.mkdir(parents=True, exist_ok=True)
@@ -414,12 +443,14 @@ def main():
                 day = datetime.now(TZ).date().isoformat()
                 try:
                     payload, parts = fetch_range("xunji-food", day, day, [day])
-                    ingest(db, "xunji-food", payload, parts, day, day)
+                    complete = ingest(db, "xunji-food", payload, parts, day, day, preserve_empty=True)
                 except (SourceError, ValueError, OSError) as error:
                     detail = str(error) if isinstance(error, SourceError) else type(error).__name__
                     with db:
                         log_run(db, "xunji-food", day, day, "error", detail)
                     raise SourceError(f"今日饮食同步失败：{detail}") from None
+                if not complete:
+                    raise PartialSync("今日饮食未返回，已保留原数据")
                 print(f"今日饮食同步成功，日期 {day}")
             elif args.command == "sync-zepp-workouts":
                 today = datetime.now(TZ).date()
@@ -440,10 +471,11 @@ def main():
                     parser.error("--days 需要在 1 至 31 之间")
                 if (args.include_today_zepp or args.include_today_body or args.include_today_xunji) and args.end:
                     parser.error("包含当天的选项和 --end 不能同时使用")
-                sync(db, end - timedelta(days=args.days - 1), end,
-                     zepp_end=today if args.include_today_zepp else None,
-                     body_end=today if args.include_today_body else None,
-                     xunji_end=today if args.include_today_xunji else None)
+                if not sync(db, end - timedelta(days=args.days - 1), end,
+                            zepp_end=today if args.include_today_zepp else None,
+                            body_end=today if args.include_today_body else None,
+                            xunji_end=today if args.include_today_xunji else None):
+                    raise SourceError("部分来源同步失败")
             elif args.command == "sync-xunji":
                 today = datetime.now(TZ).date()
                 if not sync(db, today - timedelta(days=6), today, sources=XUNJI_SOURCES):
@@ -463,6 +495,8 @@ def main():
             elif args.command == "retry-saved-report":
                 retry_saved_report(db, sys.stdin.readline(16).strip(), datetime.now(TZ).date())
                 print("报告推送完成")
+            elif args.command == "send-saved-report":
+                retry_saved_report(db, args.kind, datetime.now(TZ).date())
             else:
                 from weekly import generate
                 today = datetime.now(TZ).date()

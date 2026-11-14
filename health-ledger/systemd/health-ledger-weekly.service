@@ -10,9 +10,9 @@ User=xunji-agent
 Group=xunji-agent
 WorkingDirectory=/home/xunji-agent/health-ledger
 Environment=PATH=/home/xunji-agent/.openclaw/bin:/home/xunji-agent/.openclaw/tools/node/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart=/usr/bin/python3 -B ledger.py sync --days 14
-ExecStart=/home/xunji-agent/health-ledger/.venv/bin/python -B backup.py
-ExecStart=/usr/bin/python3 -B ledger.py report --send
+ExecStart=-/usr/bin/python3 -B ledger.py sync --days 14
+ExecStart=/usr/bin/python3 -B ledger.py report
+ExecStart=/usr/bin/python3 -B ledger.py send-saved-report weekly
 UMask=0077
 TimeoutStartSec=20min
 NoNewPrivileges=true

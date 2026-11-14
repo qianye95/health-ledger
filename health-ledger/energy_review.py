@@ -106,10 +106,10 @@ def energy_review(current, previous, weeks, waist, profile, age, end, workouts):
         if len(intake) == 7:
             lines.append("缺口按估算消耗减去日均记录摄入，正值表示估算有缺口。")
             plausible_gap = all(value >= 200 for value in differences)
-        if len(prior_intake) == 7:
-            prior_gap = all(low - mean(prior_intake.values()) >= 200 for low, _ in expenditure.values())
         else:
             lines.append("本周摄入缺天，暂不计算整周日均缺口。")
+        if len(prior_intake) == 7:
+            prior_gap = all(low - mean(prior_intake.values()) >= 200 for low, _ in expenditure.values())
 
     recent = [weights for _, weights in weeks[-3:]]
     three_weeks = len(recent) == 3 and all(len(weights) >= 5 for weights in recent)
