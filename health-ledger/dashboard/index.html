@@ -18,7 +18,10 @@
         <a href="#review">训练与恢复</a>
         <a href="#sources">数据同步</a>
       </nav>
-      <button type="button" id="refresh" class="refresh">刷新看板</button>
+      <div class="refresh-actions">
+        <button type="button" id="refresh" class="refresh">刷新看板</button>
+        <button type="button" id="sync-xunji" class="refresh sync-action">同步训记</button>
+      </div>
     </div>
   </header>
   <main class="wrap">
@@ -27,6 +30,7 @@
       <p id="status" role="status">正在读取总账…</p>
     </div>
     <div id="error" class="error" role="alert" hidden></div>
+    <p id="sync-feedback" role="status" hidden></p>
     <div id="dashboard" hidden>
       <div data-page="overview">
         <section class="metrics" aria-label="最新身体数据" id="metrics"></section>
@@ -117,7 +121,7 @@
         </div>
       </section>
       <section data-page="sources" class="section" aria-labelledby="source-heading" hidden>
-        <div class="section-heading"><div><h2 id="source-heading">数据同步</h2><p>云端每天 10:00 同步。今日饮食在 06:15 至 23:45 每半小时补拉一次。时间均为北京时间。</p></div></div>
+        <div class="section-heading"><div><h2 id="source-heading">数据同步</h2><p>每天 10:00 同步训记和 Zepp，14:00 补拉含当天在内的近 7 天训记数据。今日饮食在 06:15 至 23:45 每半小时同步一次。时间均为北京时间。</p></div></div>
         <div id="source-grid" class="source-grid"></div>
       </section>
     </div>

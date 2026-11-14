@@ -286,13 +286,16 @@ def backfill_zepp(db, since, end):
     print("Zepp 历史回溯完成。")
 
 
-def sync(db, start, end, *, zepp_end=None, body_end=None):
+XUNJI_SOURCES = ("xunji-training", "xunji-body", "xunji-food")
+
+
+def sync(db, start, end, *, zepp_end=None, body_end=None, xunji_end=None, sources=SOURCES):
     days = dates(start, end)
     failed = []
-    for source in SOURCES:
+    for source in sources:
         status = "error"
         if source == "xunji-training":
-            for day in days:
+            for day in (dates(start, xunji_end) if xunji_end else days):
                 try:
                     payload = fetch_xunji("https://trains.xunjiapp.cn" + xunji.READ_PATH, "XUNJI_TRAIN_KEY",
                                           {"schema_version": xunji.SCHEMA, "datestr": day, "include_full_data": True})
@@ -302,7 +305,8 @@ def sync(db, start, end, *, zepp_end=None, body_end=None):
                         log_run(db, source, day, day, "error", str(error))
                     failed.append(source)
             continue
-        source_end = {"zepp": zepp_end, "zepp-workout": zepp_end, "xunji-body": body_end}.get(source) or end
+        source_end = {"zepp": zepp_end, "zepp-workout": zepp_end,
+                      "xunji-body": xunji_end or body_end, "xunji-food": xunji_end}.get(source) or end
         source_days = days if source_end == end else dates(start, source_end)
         last = source_days[-1]
         try:
@@ -320,6 +324,7 @@ def sync(db, start, end, *, zepp_end=None, body_end=None):
             failed.append(source)
     if failed:
         print("需核对：" + "、".join(dict.fromkeys(failed)))
+    return not failed
 
 
 def status(db):
@@ -348,6 +353,8 @@ def main():
     sync_cmd.add_argument("--end", type=date.fromisoformat)
     sync_cmd.add_argument("--include-today-zepp", action="store_true")
     sync_cmd.add_argument("--include-today-body", action="store_true")
+    sync_cmd.add_argument("--include-today-xunji", action="store_true")
+    commands.add_parser("sync-xunji", help="补拉近七个自然日的训记数据")
     commands.add_parser("status")
     commands.add_parser("sync-food-today", help="只同步今天的训记饮食")
     workout_sync = commands.add_parser("sync-zepp-workouts", help="只同步 Zepp 单次运动")
@@ -403,11 +410,17 @@ def main():
                 end = args.end or today - timedelta(days=1)
                 if not 1 <= args.days <= 31:
                     parser.error("--days 需要在 1 至 31 之间")
-                if (args.include_today_zepp or args.include_today_body) and args.end:
+                if (args.include_today_zepp or args.include_today_body or args.include_today_xunji) and args.end:
                     parser.error("包含当天的选项和 --end 不能同时使用")
                 sync(db, end - timedelta(days=args.days - 1), end,
                      zepp_end=today if args.include_today_zepp else None,
-                     body_end=today if args.include_today_body else None)
+                     body_end=today if args.include_today_body else None,
+                     xunji_end=today if args.include_today_xunji else None)
+            elif args.command == "sync-xunji":
+                today = datetime.now(TZ).date()
+                if not sync(db, today - timedelta(days=6), today, sources=XUNJI_SOURCES):
+                    raise SourceError("部分训记数据同步失败")
+                print("训记同步完成")
             elif args.command == "import-zepp":
                 import_zepp(db, args.path)
             elif args.command == "backfill-zepp":

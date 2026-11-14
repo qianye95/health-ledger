@@ -623,5 +623,25 @@ for (const button of document.querySelectorAll("[data-range]")) {
   });
 }
 $("#refresh").addEventListener("click", refresh);
+$("#sync-xunji").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  const feedback = $("#sync-feedback");
+  button.disabled = true;
+  feedback.hidden = false;
+  feedback.textContent = "正在同步近 7 天训记数据，请稍候…";
+  try {
+    const response = await fetch("/api/sync/xunji", {
+      method: "POST",
+      headers: { "X-Ledger-Action": "sync-xunji" },
+    });
+    const result = await response.json();
+    feedback.textContent = result.message;
+    if (response.ok || response.status === 502) await refresh();
+  } catch {
+    feedback.textContent = "暂时无法确认同步结果，请查看数据同步页。";
+  } finally {
+    button.disabled = false;
+  }
+});
 setInterval(() => { if (!document.hidden) refresh(); }, 60000);
 refresh();

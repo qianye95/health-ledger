@@ -1,0 +1,12 @@
+[Unit]
+Description=Refresh recent Xunji data
+
+[Service]
+Type=oneshot
+User=xunji-agent
+Group=xunji-agent
+WorkingDirectory=/home/xunji-agent/health-ledger
+ExecStart=/usr/bin/python3 -B ledger.py sync-xunji
+UMask=0077
+TimeoutStartSec=4min
+NoNewPrivileges=true

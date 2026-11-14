@@ -18,9 +18,12 @@
 
 | 时间 | 任务 |
 | --- | --- |
-| 每日 10:00 | 同步近期训记和 Zepp 数据 |
+| 每日 10:00 | 同步截至当天的训记和 Zepp 数据 |
+| 每日 14:00 | 回拉含当天在内的近七天训记数据 |
 | 06:15–23:45 每半小时 | 补拉当天饮食 |
 | 每日 11:00 | 微信日报，附看板链接 |
 | 周六 11:00 | 微信周报与加密备份 |
 
 可用 `python3 ledger.py status` 核对数据覆盖与同步状态，或用 `python3 ledger.py daily-report --dry-run` 校验微信投递参数。
+
+「同步训记」可立即执行同样的七天回拉。安装单元后启用 `health-ledger-xunji.timer` 和 `health-ledger-xunji-manual.socket`。

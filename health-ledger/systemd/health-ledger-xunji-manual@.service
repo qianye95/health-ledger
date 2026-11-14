@@ -1,0 +1,14 @@
+[Unit]
+Description=Dashboard-triggered Xunji refresh
+
+[Service]
+User=xunji-agent
+Group=xunji-agent
+WorkingDirectory=/home/xunji-agent/health-ledger
+ExecStart=/usr/bin/python3 -B ledger.py sync-xunji
+StandardInput=socket
+StandardOutput=socket
+StandardError=journal
+UMask=0077
+RuntimeMaxSec=4min
+NoNewPrivileges=true

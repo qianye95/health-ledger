@@ -1,4 +1,4 @@
-"""Private, read-only dashboard for the cloud health ledger."""
+"""Private dashboard for the cloud health ledger."""
 import argparse
 from collections import defaultdict
 from contextlib import closing
@@ -7,7 +7,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
 import sqlite3
+import socket
 from statistics import mean
+from threading import Lock
+from time import monotonic
 from urllib.parse import parse_qs, urlsplit
 
 from ledger import HERE, SOURCES, STATE, TZ, USER, dates
@@ -393,6 +396,9 @@ def dashboard(db, view, today):
 
 
 class Handler(BaseHTTPRequestHandler):
+    sync_lock = Lock()
+    next_sync = 0
+
     def log_message(self, format, *args):
         return
 
@@ -434,6 +440,41 @@ class Handler(BaseHTTPRequestHandler):
             self.respond(200, payload, "application/json; charset=utf-8")
         else:
             self.respond(404, b"Not found", "text/plain")
+
+    def do_POST(self):
+        if self.path != "/api/sync/xunji":
+            self.respond(404, b"Not found", "text/plain")
+            return
+        host = self.headers.get("Host", "").split(":", 1)[0]
+        if host not in ("127.0.0.1", "localhost") or self.headers.get("X-Ledger-Action") != "sync-xunji":
+            self.respond(403, b"Forbidden", "text/plain")
+            return
+        if not self.sync_lock.acquire(blocking=False):
+            self.sync_result(409, "训记同步正在进行，请稍候。")
+            return
+        try:
+            if monotonic() < Handler.next_sync:
+                self.sync_result(429, "请求过于频繁，请稍后再试。")
+                return
+            Handler.next_sync = monotonic() + 60
+            try:
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+                    client.settimeout(250)
+                    client.connect("/run/health-ledger-xunji.sock")
+                    with client.makefile("rb") as result:
+                        completed = result.read(4096).rstrip().endswith("训记同步完成".encode())
+            except OSError:
+                self.sync_result(503, "暂时无法启动或确认同步，请查看数据同步页。")
+                return
+            if completed:
+                self.sync_result(200, "训记同步完成。")
+            else:
+                self.sync_result(502, "部分训记数据同步失败，已入账的数据可以刷新查看。")
+        finally:
+            self.sync_lock.release()
+
+    def sync_result(self, status, message):
+        self.respond(status, json.dumps({"message": message}, ensure_ascii=False).encode(), "application/json; charset=utf-8")
 
 
 if __name__ == "__main__":
