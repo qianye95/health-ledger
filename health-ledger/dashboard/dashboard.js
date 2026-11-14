@@ -527,13 +527,14 @@ function render(payload) {
       c.weight ? `${shortDay(c.weight.day)} 实测 · 较 ${shortDay(base?.day)} ${signed(delta, 1)} 斤` : "暂无实测"),
     metric("目标体重", target == null ? "—" : measurementText(target), "斤",
       gap == null ? "等待当前体重与目标" : gap > 0 ? `距目标 ${measurementText(gap)} 斤` : "最新实测已到目标"),
-    metric("最近实测腰围", fmt(c.waist?.value, 0), "cm", c.waist ? `沿用 ${shortDay(c.waist.day)} 的测量` : "暂无实测"),
+    metric("最近实测腰围", c.waist ? measurementText(c.waist.value) : "—", "cm",
+      c.waist ? `沿用 ${shortDay(c.waist.day)} 的测量` : "暂无实测"),
     metric("近 7 日平均睡眠", fmt(c.sleep_avg == null ? null : c.sleep_avg / 60), "小时",
       `${c.sleep_days}/7 晚有效${sleepDelta == null ? "" : ` · 较前周 ${signed(sleepDelta, 0)} 分`}`),
   );
   $("#fat-loss-progress").replaceChildren(
     fatLossCard("体重", "斤", inJin(p.start_weight_kg), c.weight && { ...c.weight, value: weight }, target, "目标"),
-    fatLossCard("腰围", "cm", p.start_waist_cm, c.waist, p.target_waist_cm, "暂定目标"),
+    fatLossCard("腰围", "cm", p.start_waist_cm, c.waist, p.target_waist_cm, "目标"),
   );
   $("#range-caption").textContent = `${payload.start} 至 ${payload.end} · 跟踪起点 ${payload.baseline}`;
   $("#review-caption").textContent = `近 7 个完整日 · ${shortDay(period.start)}–${shortDay(period.end)}`;
