@@ -593,7 +593,7 @@ function render(payload) {
   xunjiSources.replaceChildren();
   zeppSources.replaceChildren();
   for (const item of payload.sources) {
-    const row = element("article", null, "source-row");
+    const card = element("article", null, "panel source-card");
     const description = element("div");
     description.append(element("h5", sourceTitles[item.source]),
       element("p", item.last ? `数据截至 ${item.last}` : "尚无入账日期"));
@@ -604,9 +604,9 @@ function render(payload) {
     if (item.observed_at) {
       result.append(element("p", `入账 ${formatStamp.format(new Date(item.observed_at))}`));
     }
-    row.append(description, result);
-    if (item.run && state !== "ok") row.append(element("p", item.run.detail, "source-detail"));
-    (item.source.startsWith("xunji-") ? xunjiSources : zeppSources).append(row);
+    card.append(description, result);
+    if (item.run && state !== "ok") card.append(element("p", item.run.detail, "source-detail"));
+    (item.source.startsWith("xunji-") ? xunjiSources : zeppSources).append(card);
   }
   $("#dashboard").hidden = false;
   for (const redraw of charts) redraw(payload);

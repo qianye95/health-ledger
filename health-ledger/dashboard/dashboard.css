@@ -57,12 +57,12 @@ p { color: var(--muted); }
 #status { text-align: right; }
 .metrics, .plan-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
 .panel, .metric, .plan-card { background: var(--paper); border: 1px solid var(--line); border-radius: 14px; min-width: 0; }
-.source-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-items: start; }
-.source-group h4 { margin: 0; padding-bottom: 8px; color: var(--green-dark); }
-.source-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; border-top: 1px solid var(--line); padding: 10px 0; }
-.source-row:last-child { padding-bottom: 0; }
-.source-row h5 { margin: 0; font-size: 14px; }
-.source-row p { font-size: 12px; margin-top: 3px; }
+.source-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.source-group h4 { margin: 0 0 8px; color: var(--green-dark); }
+.source-cards { display: grid; gap: 10px; }
+.source-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 6px 12px; padding: 13px 16px; }
+.source-card h5 { margin: 0; font-size: 14px; }
+.source-card p { font-size: 12px; margin-top: 3px; overflow-wrap: anywhere; }
 .source-result { text-align: right; }
 .source-detail { grid-column: 1 / -1; }
 .metric { padding: 17px 20px; }
