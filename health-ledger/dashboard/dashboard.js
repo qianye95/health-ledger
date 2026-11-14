@@ -479,7 +479,20 @@ function fatLossCard(label, unit, start, reading, goal, goalLabel) {
     entry.append(element("dt", name), element("dd", value == null ? "—" : `${measurementText(value)} ${unit}`));
     values.append(entry);
   }
-  card.append(heading, values);
+  card.append(heading);
+  if (Number.isFinite(start) && Number.isFinite(current)) {
+    const change = Math.round((start - current) * 10) / 10;
+    const highlight = element("div", null, change > 0 ? "fat-loss-change is-reduced" : "fat-loss-change");
+    if (change === 0) {
+      highlight.append(element("span", "与起点持平"));
+    } else {
+      const result = element("strong", measurementText(Math.abs(change)));
+      result.append(element("span", ` ${unit}`, "fat-loss-unit"));
+      highlight.append(element("span", change > 0 ? "较起点已减" : "较起点增加"), result);
+    }
+    card.append(highlight);
+  }
+  card.append(values);
   if (percent != null) {
     const bar = element("progress");
     bar.max = 100;
@@ -488,10 +501,6 @@ function fatLossCard(label, unit, start, reading, goal, goalLabel) {
     card.append(bar);
   }
   const notes = [];
-  if (Number.isFinite(start) && Number.isFinite(current)) {
-    const change = start - current;
-    if (change) notes.push(`较起点${change > 0 ? "减少" : "增加"} ${measurementText(Math.abs(change))} ${unit}`);
-  }
   if (Number.isFinite(current) && Number.isFinite(goal)) {
     notes.push(current > goal ? `距目标 ${measurementText(current - goal)} ${unit}` : "已达目标");
   }
