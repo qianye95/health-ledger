@@ -344,7 +344,7 @@ function renderIntakeGoals(summary, today) {
   const { day, metrics } = summary;
   const amount = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 1 });
   const goalItems = [
-    ["每日热量", "calories_kcal", "kcal"], ["碳水", "carbs_g", "g"],
+    ["每日热量目标", "calories_kcal", "kcal"], ["碳水", "carbs_g", "g"],
     ["蛋白质", "protein_g", "g"], ["脂肪", "fat_g", "g"],
   ];
   $("#intake-daily-goals").replaceChildren(...goalItems.map(([label, key, unit]) => {
