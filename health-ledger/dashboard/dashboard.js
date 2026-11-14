@@ -571,14 +571,33 @@ function render(payload) {
     item.append(element("h4", finding.title), element("p", finding.text));
     guidance.append(item);
   }
+  const formatStamp = new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai", month: "numeric", day: "numeric",
+    hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+  });
+  const deliveryStates = {
+    sent: "已发送", waiting: "未到时间", running: "正在执行",
+    failed: "推送失败", unconfirmed: "暂无送达记录", off: "今日无排程",
+  };
+  $("#delivery-grid").replaceChildren(...payload.report_delivery.map((report) => {
+    const card = element("article", null, "panel delivery-card");
+    const heading = element("div", null, "sync-card-heading");
+    heading.append(element("h4", report.kind === "daily" ? "日报" : "周报"),
+      element("span", deliveryStates[report.status], `sync-badge ${report.status}`));
+    card.append(heading, element("div", report.schedule, "delivery-time"));
+    if (report.sent_at) card.append(element("p", `发送记录 · ${formatStamp.format(new Date(report.sent_at))}`));
+    return card;
+  }));
   const sources = $("#source-grid");
   sources.replaceChildren();
   for (const item of payload.sources) {
     const card = element("article", null, "source");
-    const stamp = item.observed_at
-      ? new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(item.observed_at))
-      : "待采集";
-    card.append(element("h3", sourceTitles[item.source]), element("p", item.last ? `入账日期截至 ${item.last}` : "尚无入账日期"),
+    const stamp = item.observed_at ? formatStamp.format(new Date(item.observed_at)) : "待采集";
+    const heading = element("div", null, "sync-card-heading");
+    const state = item.run?.status;
+    const label = { ok: "已同步", error: "同步失败", pending: "待授权" }[state] ?? "待同步";
+    heading.append(element("h4", sourceTitles[item.source]), element("span", label, `sync-badge ${state ?? ""}`));
+    card.append(heading, element("p", item.last ? `入账日期截至 ${item.last}` : "尚无入账日期"),
       element("p", `最近入账 ${stamp}`));
     if (item.run && item.run.status !== "ok") card.append(element("p", item.run.detail));
     sources.append(card);

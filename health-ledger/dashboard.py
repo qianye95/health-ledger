@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import sqlite3
 import socket
+import subprocess
 from statistics import mean
 from threading import Lock
 from time import monotonic
@@ -208,6 +209,46 @@ def sources(db, today):
              "last": cover.get(source, (None,)*4)[1], "days": cover.get(source, (None,)*4)[2],
              "observed_at": cover.get(source, (None,)*4)[3], "run": runs.get(source)}
             for source in SOURCES]
+
+
+def report_delivery(db, now):
+    today = now.date()
+    daily = db.execute("SELECT sent_at FROM daily_deliveries WHERE user_id=? AND day=?",
+                       (USER, today.isoformat())).fetchone()
+    weekly = None
+    if today.weekday() == 5:
+        friday = (today - timedelta(days=1)).isoformat()
+        weekly = db.execute("SELECT sent_at FROM deliveries WHERE user_id=? AND week_end=?",
+                            (USER, friday)).fetchone()
+
+    reports = []
+    for kind, schedule, scheduled_today, receipt in (
+        ("daily", "每天 11:00", True, daily),
+        ("weekly", "每周六 11:00", today.weekday() == 5, weekly),
+    ):
+        status = "off"
+        if receipt:
+            status = "sent"
+        elif scheduled_today:
+            status = "waiting" if now.hour < 11 else "unconfirmed"
+            try:
+                result = subprocess.run(
+                    ["/usr/bin/systemctl", "show", f"health-ledger-{kind}.service",
+                     "-p", "ActiveState", "-p", "Result", "-p", "StateChangeTimestamp"],
+                    capture_output=True, text=True, check=True, timeout=1,
+                    env={"PATH": "/usr/bin:/bin", "TZ": "Asia/Shanghai", "LC_ALL": "C"},
+                )
+                unit = dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
+                if unit.get("ActiveState") == "activating":
+                    status = "running"
+                elif (today.isoformat() in unit.get("StateChangeTimestamp", "")
+                      and unit.get("Result") not in (None, "", "success")):
+                    status = "failed"
+            except (OSError, subprocess.SubprocessError):
+                pass
+        reports.append({"kind": kind, "schedule": schedule, "status": status,
+                        "sent_at": receipt[0] if receipt else None})
+    return reports
 
 
 def assess(current, previous, plan, workouts):
@@ -450,6 +491,7 @@ class Handler(BaseHTTPRequestHandler):
                 with closing(sqlite3.connect(uri, uri=True, timeout=5)) as db:
                     db.execute("BEGIN")
                     result = dashboard(db, view, today, custom_dates)
+                    result["report_delivery"] = report_delivery(db, datetime.now(TZ))
                 payload = json.dumps(result, ensure_ascii=False, allow_nan=False).encode()
             except (OSError, ValueError, TypeError, sqlite3.Error):
                 self.respond(503, '{"error":"总账暂时不可读取，请稍后刷新。"}'.encode(), "application/json")

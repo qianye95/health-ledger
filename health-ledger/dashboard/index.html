@@ -130,8 +130,20 @@
         </div>
       </section>
       <section data-page="sources" class="section" aria-labelledby="source-heading" hidden>
-        <div class="section-heading"><div><h2 id="source-heading">数据同步</h2><p>每天 10:00 同步训记和 Zepp，14:00 补拉含当天在内的近 7 天训记数据。今日饮食在 06:15 至 23:45 每半小时同步一次。时间均为北京时间。</p></div></div>
-        <div id="source-grid" class="source-grid"></div>
+        <div class="section-heading"><div><h2 id="source-heading">数据同步</h2><p>采集和推送时间均为北京时间。</p></div></div>
+        <section class="sync-section" aria-labelledby="delivery-heading">
+          <h3 id="delivery-heading">微信推送</h3>
+          <div id="delivery-grid" class="delivery-grid"></div>
+        </section>
+        <section class="sync-section" aria-labelledby="source-list-heading">
+          <h3 id="source-list-heading">数据来源</h3>
+          <ul class="sync-times" aria-label="采集时间">
+            <li><strong>10:00</strong> 训记与 Zepp</li>
+            <li><strong>14:00</strong> 训记近 7 天</li>
+            <li><strong>06:15–23:45</strong> 每半小时同步当天饮食</li>
+          </ul>
+          <div id="source-grid" class="source-grid"></div>
+        </section>
       </section>
     </div>
   </main>
