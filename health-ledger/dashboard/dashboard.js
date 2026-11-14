@@ -335,8 +335,8 @@ function chart(card) {
 }
 
 const charts = [...document.querySelectorAll("[data-chart]")].map(chart);
-const sourceTitles = { "xunji-training": "训记 · 训练", "xunji-body": "训记 · 身体测量",
-  "xunji-food": "训记 · 饮食", zepp: "Zepp · 睡眠与活动", "zepp-workout": "Zepp · 单次运动" };
+const sourceTitles = { "xunji-training": "训练", "xunji-body": "身体测量",
+  "xunji-food": "饮食", zepp: "睡眠与活动", "zepp-workout": "单次运动" };
 
 const trainingLabels = { strength: "力量", cardio: "有氧", other: "其他" };
 
@@ -588,19 +588,25 @@ function render(payload) {
     if (report.sent_at) card.append(element("p", `发送记录 · ${formatStamp.format(new Date(report.sent_at))}`));
     return card;
   }));
-  const sources = $("#source-grid");
-  sources.replaceChildren();
+  const xunjiSources = $("#xunji-sources");
+  const zeppSources = $("#zepp-sources");
+  xunjiSources.replaceChildren();
+  zeppSources.replaceChildren();
   for (const item of payload.sources) {
-    const card = element("article", null, "source");
-    const stamp = item.observed_at ? formatStamp.format(new Date(item.observed_at)) : "待采集";
-    const heading = element("div", null, "sync-card-heading");
+    const row = element("article", null, "source-row");
+    const description = element("div");
+    description.append(element("h5", sourceTitles[item.source]),
+      element("p", item.last ? `数据截至 ${item.last}` : "尚无入账日期"));
     const state = item.run?.status;
     const label = { ok: "已同步", error: "同步失败", pending: "待授权" }[state] ?? "待同步";
-    heading.append(element("h4", sourceTitles[item.source]), element("span", label, `sync-badge ${state ?? ""}`));
-    card.append(heading, element("p", item.last ? `入账日期截至 ${item.last}` : "尚无入账日期"),
-      element("p", `最近入账 ${stamp}`));
-    if (item.run && item.run.status !== "ok") card.append(element("p", item.run.detail));
-    sources.append(card);
+    const result = element("div", null, "source-result");
+    result.append(element("span", label, `sync-badge ${state ?? ""}`));
+    if (item.observed_at) {
+      result.append(element("p", `入账 ${formatStamp.format(new Date(item.observed_at))}`));
+    }
+    row.append(description, result);
+    if (item.run && state !== "ok") row.append(element("p", item.run.detail, "source-detail"));
+    (item.source.startsWith("xunji-") ? xunjiSources : zeppSources).append(row);
   }
   $("#dashboard").hidden = false;
   for (const redraw of charts) redraw(payload);
