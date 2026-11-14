@@ -44,6 +44,10 @@ button:focus-visible, a:focus-visible, canvas:focus-visible { outline: 2px solid
 .sync-badge.ok, .sync-badge.sent { color: var(--green-dark); background: var(--green-light); }
 .sync-badge.error, .sync-badge.failed { color: #982f20; background: #fae1d9; }
 .delivery-time { color: var(--ink); font-size: 20px; font-weight: 720; font-variant-numeric: tabular-nums; }
+.delivery-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.delivery-retry { padding: 3px 8px; font-size: 12px; color: var(--green-dark); }
+.delivery-retry:disabled { opacity: .65; cursor: wait; }
+#delivery-feedback { margin-top: 8px; font-size: 13px; }
 .sync-times { display: flex; flex-wrap: wrap; gap: 5px 16px; padding: 0; margin: 0 0 10px; list-style: none; color: var(--muted); font-size: 13px; }
 .sync-times strong { color: var(--ink); }
 #sync-feedback { padding: 8px 0; font-size: 13px; }

@@ -14,7 +14,7 @@ from threading import Lock
 from time import monotonic
 from urllib.parse import parse_qs, urlsplit
 
-from ledger import HERE, SOURCES, STATE, TZ, USER, dates
+from ledger import HERE, SOURCES, STATE, TZ, USER, dates, report_file
 from weekly import age_on, aggregate, heart_minutes, is_cardio, lift_changes, load_period, number, sleep_minutes, timestamp
 
 BASELINE = date(2026, 10, 1)
@@ -215,22 +215,23 @@ def report_delivery(db, now):
     today = now.date()
     daily = db.execute("SELECT sent_at FROM daily_deliveries WHERE user_id=? AND day=?",
                        (USER, today.isoformat())).fetchone()
-    weekly = None
-    if today.weekday() == 5:
-        friday = (today - timedelta(days=1)).isoformat()
-        weekly = db.execute("SELECT sent_at FROM deliveries WHERE user_id=? AND week_end=?",
-                            (USER, friday)).fetchone()
+    saturday = today - timedelta(days=(today.weekday() - 5) % 7)
+    friday = (saturday - timedelta(days=1)).isoformat()
+    weekly = db.execute("SELECT sent_at FROM deliveries WHERE user_id=? AND week_end=?",
+                        (USER, friday)).fetchone()
 
     reports = []
-    for kind, schedule, scheduled_today, receipt in (
-        ("daily", "每天 11:00", True, daily),
-        ("weekly", "每周六 11:00", today.weekday() == 5, weekly),
+    for kind, schedule, scheduled_day, period, receipt in (
+        ("daily", "每天 11:00", today, today.isoformat(), daily),
+        ("weekly", "每周六 11:00", saturday, friday, weekly),
     ):
         status = "off"
-        if receipt:
+        scheduled_today = scheduled_day == today
+        saved = report_file(kind, period).is_file()
+        if receipt and (scheduled_today or datetime.fromisoformat(receipt[0]).astimezone(TZ).date() == today):
             status = "sent"
-        elif scheduled_today:
-            status = "waiting" if now.hour < 11 else "unconfirmed"
+        elif not receipt and (scheduled_today or saved):
+            status = "waiting" if scheduled_today and now.hour < 11 else "unconfirmed"
             try:
                 result = subprocess.run(
                     ["/usr/bin/systemctl", "show", f"health-ledger-{kind}.service",
@@ -241,13 +242,14 @@ def report_delivery(db, now):
                 unit = dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
                 if unit.get("ActiveState") == "activating":
                     status = "running"
-                elif (today.isoformat() in unit.get("StateChangeTimestamp", "")
+                elif (scheduled_day.isoformat() in unit.get("StateChangeTimestamp", "")
                       and unit.get("Result") not in (None, "", "success")):
                     status = "failed"
             except (OSError, subprocess.SubprocessError):
                 pass
         reports.append({"kind": kind, "schedule": schedule, "status": status,
-                        "sent_at": receipt[0] if receipt else None})
+                        "sent_at": receipt[0] if status == "sent" else None,
+                        "retryable": saved and not receipt and status in ("failed", "unconfirmed")})
     return reports
 
 
@@ -443,6 +445,8 @@ def dashboard(db, view, today, custom_dates=None):
 class Handler(BaseHTTPRequestHandler):
     sync_lock = Lock()
     next_sync = 0
+    retry_lock = Lock()
+    next_retry = 0
 
     def log_message(self, format, *args):
         return
@@ -501,6 +505,9 @@ class Handler(BaseHTTPRequestHandler):
             self.respond(404, b"Not found", "text/plain")
 
     def do_POST(self):
+        if self.path in ("/api/reports/daily/retry", "/api/reports/weekly/retry"):
+            self.retry_report(self.path.split("/")[3])
+            return
         if self.path != "/api/sync/xunji":
             self.respond(404, b"Not found", "text/plain")
             return
@@ -534,6 +541,40 @@ class Handler(BaseHTTPRequestHandler):
 
     def sync_result(self, status, message):
         self.respond(status, json.dumps({"message": message}, ensure_ascii=False).encode(), "application/json; charset=utf-8")
+
+    def retry_report(self, kind):
+        host = self.headers.get("Host", "").split(":", 1)[0]
+        if host not in ("127.0.0.1", "localhost") or self.headers.get("X-Ledger-Action") != "retry-report":
+            self.sync_result(403, "该请求无法执行。")
+            return
+        if not self.retry_lock.acquire(blocking=False):
+            self.sync_result(409, "报告正在推送，请稍候。")
+            return
+        try:
+            uri = (STATE / "ledger.sqlite3").as_uri() + "?mode=ro"
+            with closing(sqlite3.connect(uri, uri=True, timeout=5)) as db:
+                reports = report_delivery(db, datetime.now(TZ))
+            if not any(report["kind"] == kind and report["retryable"] for report in reports):
+                self.sync_result(409, "当前没有可重新推送的报告。")
+                return
+            if monotonic() < Handler.next_retry:
+                self.sync_result(429, "请稍候再试。")
+                return
+            Handler.next_retry = monotonic() + 5
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+                client.settimeout(70)
+                client.connect("/run/health-ledger-report-retry.sock")
+                client.sendall(f"{kind}\n".encode())
+                with client.makefile("rb") as response:
+                    completed = response.read(4096).rstrip().endswith("报告推送完成".encode())
+            if completed:
+                self.sync_result(200, "微信推送成功。")
+            else:
+                self.sync_result(502, "重推未成功。请确认已给微信机器人发过消息，并在总账任务结束后重试。")
+        except (OSError, sqlite3.Error):
+            self.sync_result(503, "暂时无法确认推送结果，请刷新看板查看状态。")
+        finally:
+            self.retry_lock.release()
 
 
 if __name__ == "__main__":

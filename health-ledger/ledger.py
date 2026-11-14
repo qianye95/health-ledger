@@ -63,6 +63,30 @@ def now():
     return datetime.now(timezone.utc).isoformat(timespec="microseconds")
 
 
+def report_file(kind, period):
+    return STATE / "reports" / USER / period / ("daily.md" if kind == "daily" else "report.md")
+
+
+def retry_saved_report(db, kind, today):
+    from weekly import deliver, send_wechat
+
+    if kind not in ("daily", "weekly"):
+        raise SourceError("无效的报告类型")
+    saturday = today - timedelta(days=(today.weekday() - 5) % 7)
+    period = (today if kind == "daily" else saturday - timedelta(days=1)).isoformat()
+    path = report_file(kind, period)
+    if not path.is_file():
+        raise SourceError("没有可重发的报告")
+    body = path.read_text()
+    if kind == "weekly":
+        deliver(db, period, body, via_gateway=True)
+    elif not db.execute("SELECT 1 FROM daily_deliveries WHERE user_id=? AND day=?",
+                        (USER, period)).fetchone():
+        send_wechat(body, via_gateway=True)
+        with db:
+            db.execute("INSERT INTO daily_deliveries VALUES (?,?,?)", (USER, period, now()))
+
+
 def dates(start, end):
     return [(start + timedelta(days=i)).isoformat() for i in range((end - start).days + 1)]
 
@@ -371,13 +395,17 @@ def main():
     delivery.add_argument("--send", action="store_true")
     delivery.add_argument("--dry-run", action="store_true", help="核对微信投递参数，不发送")
     delivery.add_argument("--resend", action="store_true", help="重新推送今天的日报")
+    commands.add_parser("retry-saved-report", help="通过本机网关重发已保存的报告")
     args = parser.parse_args()
     os.umask(0o077)
     STATE.mkdir(parents=True, exist_ok=True)
     if STATE.stat().st_uid != os.getuid() or STATE.stat().st_mode & 0o077:
         raise SourceError("总账目录需由运行用户拥有，且权限为 700")
     with (STATE / "ledger.lock").open("a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | (fcntl.LOCK_NB if args.command == "retry-saved-report" else 0))
+        except BlockingIOError:
+            raise SourceError("总账任务正在运行，请稍后重试") from None
         with closing(sqlite3.connect(STATE / "ledger.sqlite3")) as db:
             db.executescript(SCHEMA)
             if args.command == "status":
@@ -432,6 +460,9 @@ def main():
             elif args.command == "daily-report":
                 from daily import generate
                 generate(db, datetime.now(TZ).date(), send=args.send, dry_run=args.dry_run, resend=args.resend)
+            elif args.command == "retry-saved-report":
+                retry_saved_report(db, sys.stdin.readline(16).strip(), datetime.now(TZ).date())
+                print("报告推送完成")
             else:
                 from weekly import generate
                 today = datetime.now(TZ).date()

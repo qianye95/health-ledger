@@ -582,8 +582,18 @@ function render(payload) {
   $("#delivery-grid").replaceChildren(...payload.report_delivery.map((report) => {
     const card = element("article", null, "panel delivery-card");
     const heading = element("div", null, "sync-card-heading");
-    heading.append(element("h4", report.kind === "daily" ? "日报" : "周报"),
-      element("span", deliveryStates[report.status], `sync-badge ${report.status}`));
+    const title = report.kind === "daily" ? "日报" : "周报";
+    const actions = element("div", null, "delivery-actions");
+    actions.append(element("span", deliveryStates[report.status], `sync-badge ${report.status}`));
+    if (report.retryable) {
+      const retry = element("button", retryingReport === report.kind ? "推送中…" : "重新推送", "refresh delivery-retry");
+      retry.type = "button";
+      retry.disabled = Boolean(retryingReport);
+      retry.setAttribute("aria-label", `重新推送${title}`);
+      retry.addEventListener("click", () => retryReport(report.kind, title));
+      actions.append(retry);
+    }
+    heading.append(element("h4", title), actions);
     card.append(heading, element("div", report.schedule, "delivery-time"));
     if (report.sent_at) card.append(element("p", `发送记录 · ${formatStamp.format(new Date(report.sent_at))}`));
     return card;
@@ -614,6 +624,7 @@ function render(payload) {
 }
 
 let activeRange = new URLSearchParams({ range: "30" });
+let retryingReport = null;
 let visibleDates;
 let requestId = 0;
 const pages = [...document.querySelectorAll("[data-page]")];
@@ -648,6 +659,29 @@ async function refresh() {
     $("#error").textContent = "暂时读不到云端总账，请检查连接后刷新。";
     $("#error").hidden = false;
     $("#status").textContent = "未能刷新";
+  }
+}
+
+async function retryReport(kind, title) {
+  if (retryingReport) return;
+  retryingReport = kind;
+  const feedback = $("#delivery-feedback");
+  feedback.hidden = false;
+  feedback.textContent = `正在重新推送${title}…`;
+  for (const button of document.querySelectorAll(".delivery-retry")) button.disabled = true;
+  try {
+    const response = await fetch(`/api/reports/${kind}/retry`, {
+      method: "POST",
+      headers: { "X-Ledger-Action": "retry-report" },
+    });
+    const result = await response.json();
+    feedback.textContent = `${title} · ${result.message}`;
+  } catch {
+    feedback.textContent = "暂时无法确认推送结果，请刷新看板查看状态。";
+  } finally {
+    retryingReport = null;
+    for (const button of document.querySelectorAll(".delivery-retry")) button.disabled = false;
+    await refresh();
   }
 }
 

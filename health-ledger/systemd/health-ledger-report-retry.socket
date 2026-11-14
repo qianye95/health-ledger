@@ -1,0 +1,13 @@
+[Unit]
+Description=Local socket for retrying saved health reports
+
+[Socket]
+ListenStream=/run/health-ledger-report-retry.sock
+SocketUser=xunji-agent
+SocketGroup=xunji-agent
+SocketMode=0600
+Accept=yes
+MaxConnections=1
+
+[Install]
+WantedBy=sockets.target

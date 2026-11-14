@@ -1,0 +1,17 @@
+[Unit]
+Description=Retry a saved health report through the WeChat gateway
+After=xunji-openclaw.service
+Wants=xunji-openclaw.service
+
+[Service]
+User=xunji-agent
+Group=xunji-agent
+WorkingDirectory=/home/xunji-agent/health-ledger
+Environment=PATH=/home/xunji-agent/.openclaw/bin:/home/xunji-agent/.openclaw/tools/node/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/python3 -B ledger.py retry-saved-report
+StandardInput=socket
+StandardOutput=socket
+StandardError=journal
+UMask=0077
+RuntimeMaxSec=75
+NoNewPrivileges=true

@@ -6,6 +6,7 @@ from math import isfinite
 from pathlib import Path
 from statistics import mean
 import subprocess
+from uuid import uuid4
 
 from ledger import DASHBOARD_URL, SOURCES, STATE, TZ, USER, SourceError, atomic, dates, now
 
@@ -283,7 +284,7 @@ def report_text(end, start, current, previous, weeks, waist, profile, latest, en
     return "\n".join(lines) + "\n"
 
 
-def send_wechat(body, *, dry_run=False):
+def send_wechat(body, *, dry_run=False, via_gateway=False):
     account_root = Path.home() / ".openclaw/openclaw-weixin/accounts"
     accounts = []
     for path in account_root.glob("*.json"):
@@ -298,6 +299,11 @@ def send_wechat(body, *, dry_run=False):
     cli = Path.home() / ".openclaw/bin/openclaw"
     command = [str(cli), "message", "send", "--channel", "openclaw-weixin",
                "--account", account, "--target", recipient, "--message", body, "--json"]
+    if via_gateway:
+        params = {"channel": "openclaw-weixin", "accountId": account, "to": recipient,
+                  "message": body, "idempotencyKey": str(uuid4())}
+        command = [str(cli), "gateway", "call", "send", "--json", "--timeout", "45000",
+                   "--params", json.dumps(params, ensure_ascii=False)]
     if dry_run:
         command.append("--dry-run")
     try:
@@ -308,13 +314,13 @@ def send_wechat(body, *, dry_run=False):
         raise SourceError("微信投递失败")
 
 
-def deliver(db, end, body):
+def deliver(db, end, body, *, via_gateway=False):
     if db.execute("SELECT 1 FROM deliveries WHERE user_id=? AND week_end=?", (USER, end)).fetchone():
         print("本周周报已发送")
         return
     if not DASHBOARD_URL:
         raise SourceError("请配置 HEALTH_DASHBOARD_URL")
-    send_wechat(f"{body.rstrip()}\n\n身体总账\n{DASHBOARD_URL}")
+    send_wechat(f"{body.rstrip()}\n\n身体总账\n{DASHBOARD_URL}", via_gateway=via_gateway)
     with db:
         db.execute("INSERT INTO deliveries VALUES (?,?,?)", (USER, end, now()))
     print("周报已投递到绑定微信")
