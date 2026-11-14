@@ -479,7 +479,14 @@ function fatLossCard(label, unit, start, reading, goal, goalLabel) {
     entry.append(element("dt", name), element("dd", value == null ? "—" : `${measurementText(value)} ${unit}`));
     values.append(entry);
   }
-  card.append(heading);
+  card.append(heading, values);
+  if (percent != null) {
+    const bar = element("progress");
+    bar.max = 100;
+    bar.value = percent;
+    bar.setAttribute("aria-label", `${label}减脂进度`);
+    card.append(bar);
+  }
   if (Number.isFinite(start) && Number.isFinite(current)) {
     const change = Math.round((start - current) * 10) / 10;
     const highlight = element("div", null, change > 0 ? "fat-loss-change is-reduced" : "fat-loss-change");
@@ -491,14 +498,6 @@ function fatLossCard(label, unit, start, reading, goal, goalLabel) {
       highlight.append(element("span", change > 0 ? "较起点已减" : "较起点增加"), result);
     }
     card.append(highlight);
-  }
-  card.append(values);
-  if (percent != null) {
-    const bar = element("progress");
-    bar.max = 100;
-    bar.value = percent;
-    bar.setAttribute("aria-label", `${label}减脂进度`);
-    card.append(bar);
   }
   const notes = [];
   if (Number.isFinite(current) && Number.isFinite(goal)) {
